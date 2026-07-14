@@ -1,0 +1,23 @@
+# IDE
+.idea/
+.vscode/
+
+# Java / Maven
+backend/target/
+.tools/
+*.class
+
+# Node / Vite
+frontend/node_modules/
+frontend/dist/
+
+# Runtime files
+backend/uploads/
+backend/reports/
+backend/*.log
+backend/*.err.log
+frontend/*.log
+
+# Local configuration
+*.env
+*.local
