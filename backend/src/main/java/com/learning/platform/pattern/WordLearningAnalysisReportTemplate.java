@@ -15,23 +15,21 @@ import java.util.Map;
 public class WordLearningAnalysisReportTemplate extends AbstractReportTemplate {
     @Override
     protected void writeReport(Map<String, Object> user, RecommendationContext context, File target) throws IOException {
-        XWPFDocument doc = new XWPFDocument();
-        addParagraph(doc, "Student Learning Analysis Report", true, 18);
-        addParagraph(doc, "Student: " + user.get("name"), false, 12);
-        addParagraph(doc, "1. Learning Data Summary", true, 14);
-        addParagraph(doc, "The system recorded " + context.getRecordCount()
-                + " learning actions. Current preferred subject: " + context.getSubject()
-                + ". Average progress is " + context.getAverageProgress()
-                + "%, and recent 7-day activity count is " + context.getRecentRecordCount() + ".", false, 12);
-        addParagraph(doc, "2. Problem Diagnosis", true, 14);
-        addParagraph(doc, weakNodeSummary(context), false, 12);
-        addParagraph(doc, "3. Improvement Advice", true, 14);
-        addParagraph(doc, "Use the loop of foundation review -> example practice -> project implementation -> stage assessment. "
-                + resourceSummary(context), false, 12);
-        FileOutputStream out = new FileOutputStream(target);
-        doc.write(out);
-        out.close();
-        doc.close();
+        try (XWPFDocument doc = new XWPFDocument(); FileOutputStream out = new FileOutputStream(target)) {
+            addParagraph(doc, "Student Learning Analysis Report", true, 18);
+            addParagraph(doc, "Student: " + user.get("name"), false, 12);
+            addParagraph(doc, "1. Learning Data Summary", true, 14);
+            addParagraph(doc, "The system recorded " + context.getRecordCount()
+                    + " learning actions. Current preferred subject: " + context.getSubject()
+                    + ". Average progress is " + context.getAverageProgress()
+                    + "%, and recent 7-day activity count is " + context.getRecentRecordCount() + ".", false, 12);
+            addParagraph(doc, "2. Problem Diagnosis", true, 14);
+            addParagraph(doc, weakNodeSummary(context), false, 12);
+            addParagraph(doc, "3. Improvement Advice", true, 14);
+            addParagraph(doc, "Use the loop of foundation review -> example practice -> project implementation -> stage assessment. "
+                    + resourceSummary(context), false, 12);
+            doc.write(out);
+        }
     }
 
     private String weakNodeSummary(RecommendationContext context) {

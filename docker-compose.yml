@@ -1,0 +1,90 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: zhidu-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请设置数据库 root 密码 MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: learning_platform
+      MYSQL_USER: ${DB_USERNAME:-zhidu_app}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?请设置数据库业务账号密码 DB_PASSWORD}
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./database/navicat_mysql.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -p$${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+  neo4j:
+    image: neo4j:5-community
+    container_name: zhidu-neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?请设置 NEO4J_PASSWORD}
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j-data:/data
+
+  backend:
+    build: ./backend
+    container_name: zhidu-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      neo4j:
+        condition: service_started
+    environment:
+      SERVER_PORT: 8081
+      DB_URL: jdbc:mysql://mysql:3306/learning_platform?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+      DB_USERNAME: ${DB_USERNAME:-zhidu_app}
+      DB_PASSWORD: ${DB_PASSWORD:?请设置 DB_PASSWORD}
+      AUTH_TOKEN_SECRET: ${AUTH_TOKEN_SECRET:?请设置至少32字节的AUTH_TOKEN_SECRET}
+      AUTH_TOKEN_TTL_SECONDS: ${AUTH_TOKEN_TTL_SECONDS:-86400}
+      TEACHER_REGISTRATION_CODE: ${TEACHER_REGISTRATION_CODE:?请设置TEACHER_REGISTRATION_CODE}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@zhidu.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?请设置至少8位的ADMIN_PASSWORD}
+      NEO4J_ENABLED: "true"
+      NEO4J_URI: neo4j://neo4j:7687
+      NEO4J_USERNAME: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?请设置 NEO4J_PASSWORD}
+      NEO4J_CONNECTION_TIMEOUT_MS: ${NEO4J_CONNECTION_TIMEOUT_MS:-2000}
+      NEO4J_ACQUISITION_TIMEOUT_MS: ${NEO4J_ACQUISITION_TIMEOUT_MS:-2000}
+      NEO4J_RETRY_TIMEOUT_MS: ${NEO4J_RETRY_TIMEOUT_MS:-800}
+      NEO4J_FAILURE_COOLDOWN_MS: ${NEO4J_FAILURE_COOLDOWN_MS:-10000}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?请设置正式前端地址 CORS_ALLOWED_ORIGINS}
+      APP_UPLOAD_DIR: /app/uploads
+      APP_REPORT_DIR: /app/reports
+    ports:
+      - "8081:8081"
+    volumes:
+      - backend-uploads:/app/uploads
+      - backend-reports:/app/reports
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE: /api
+    container_name: zhidu-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  mysql-data:
+  neo4j-data:
+  backend-uploads:
+  backend-reports:

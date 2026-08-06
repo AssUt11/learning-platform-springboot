@@ -3,10 +3,15 @@ package com.learning.platform.controller;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 
+import javax.servlet.http.HttpServletResponse;
+
 @Controller
 public class PageController {
-    @GetMapping({"/login", "/home", "/interests", "/preferences", "/catalog", "/graph", "/learning", "/agents", "/teacher"})
-    public String page() {
+    @GetMapping({"/", "/login", "/home", "/interests", "/preferences", "/catalog", "/graph", "/learning", "/agents", "/messages", "/teacher", "/admin", "/course/{courseId}"})
+    public String page(HttpServletResponse response) {
+        response.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+        response.setHeader("Pragma", "no-cache");
+        response.setDateHeader("Expires", 0);
         return "forward:/index.html";
     }
 }

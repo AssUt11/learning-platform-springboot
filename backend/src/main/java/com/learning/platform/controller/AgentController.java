@@ -1,15 +1,28 @@
 package com.learning.platform.controller;
 
+import com.learning.platform.exception.BusinessException;
 import com.learning.platform.pattern.AgentStrategyFactory;
 import com.learning.platform.pattern.RecommendationContext;
 import com.learning.platform.pattern.WordLearningAnalysisReportTemplate;
 import com.learning.platform.service.CurrentUserService;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -53,55 +66,136 @@ public class AgentController {
 
     @PostMapping("/analysis")
     public Map<String, Object> analysis(@RequestHeader(value = "Authorization", required = false) String authorization) throws IOException {
-        Map<String, Object> user = currentUserService.requireStudent(authorization);
+        Map<String, Object> user = currentUserService.requireLearner(authorization);
         RecommendationContext context = buildContext(user);
         File file = reportTemplate.generate(user, context, new File(reportDir));
-        String url = "/reports/" + file.getName();
-        jdbcTemplate.update("insert into agent_logs(student_id,agent_type,output_result,report_url) values(?,?,?,?)",
-                user.get("id"), "analysis", "Learning analysis Word report", url);
-        Map<String, Object> result = result("Learning analysis agent generated a Word report: " + url);
-        result.put("downloadUrl", url);
+        String storedUrl = "/reports/" + file.getName();
+        long reportId;
+        try {
+            reportId = insertAnalysisLog(user.get("id"), "Learning analysis Word report", storedUrl);
+        } catch (RuntimeException exception) {
+            try {
+                Files.deleteIfExists(file.toPath());
+            } catch (IOException cleanupException) {
+                exception.addSuppressed(cleanupException);
+            }
+            throw exception;
+        }
+        String downloadUrl = reportDownloadUrl(reportId);
+        Map<String, Object> result = result("Learning analysis agent generated a Word report.");
+        result.put("downloadUrl", downloadUrl);
+        result.put("reportId", reportId);
         return result;
     }
 
     @GetMapping("/reports")
     public Map<String, Object> reports(@RequestHeader(value = "Authorization", required = false) String authorization) {
-        Map<String, Object> user = currentUserService.requireStudent(authorization);
+        Map<String, Object> user = currentUserService.requireLearner(authorization);
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "select id,output_result outputResult,report_url reportUrl,created_at createdAt "
+                "select id,output_result outputResult,created_at createdAt "
                         + "from agent_logs where student_id=? and agent_type='analysis' and report_url is not null "
                         + "order by created_at desc limit 20",
                 user.get("id"));
+        for (Map<String, Object> row : rows) {
+            row.put("reportUrl", reportDownloadUrl(((Number) row.get("id")).longValue()));
+        }
         Map<String, Object> result = new HashMap<String, Object>();
         result.put("reports", rows);
         return result;
     }
 
-    @DeleteMapping("/reports/{id}")
-    public Map<String, Object> deleteReport(@RequestHeader(value = "Authorization", required = false) String authorization,
-                                            @PathVariable Long id) {
-        Map<String, Object> user = currentUserService.requireStudent(authorization);
+    @GetMapping("/reports/{id}/download")
+    public ResponseEntity<Resource> downloadReport(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable Long id) throws IOException {
+        Map<String, Object> user = currentUserService.requireLearner(authorization);
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                 "select report_url from agent_logs where id=? and student_id=? and agent_type='analysis'",
                 id, user.get("id"));
         if (rows.isEmpty()) {
-            throw new RuntimeException("Report not found.");
+            throw new BusinessException(404, "报告不存在");
+        }
+        File file = resolveReportFile(String.valueOf(rows.get(0).get("report_url")));
+        if (!file.isFile()) {
+            throw new BusinessException(404, "报告文件不存在");
+        }
+        Resource resource = new FileSystemResource(file);
+        String disposition = ContentDisposition.attachment()
+                .filename(file.getName(), StandardCharsets.UTF_8)
+                .build()
+                .toString();
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .contentLength(file.length())
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
+                .body(resource);
+    }
+
+    @DeleteMapping("/reports/{id}")
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> deleteReport(@RequestHeader(value = "Authorization", required = false) String authorization,
+                                            @PathVariable Long id) throws IOException {
+        Map<String, Object> user = currentUserService.requireLearner(authorization);
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "select report_url from agent_logs where id=? and student_id=? and agent_type='analysis' for update",
+                id, user.get("id"));
+        if (rows.isEmpty()) {
+            throw new BusinessException(404, "报告不存在");
         }
         String reportUrl = String.valueOf(rows.get(0).get("report_url"));
-        if (reportUrl.startsWith("/reports/")) {
-            File file = new File(reportDir, reportUrl.substring("/reports/".length()));
-            if (file.exists()) {
-                file.delete();
-            }
+        File reportFile = resolveReportFile(reportUrl);
+        int deleted = jdbcTemplate.update(
+                "delete from agent_logs where id=? and student_id=? and agent_type='analysis'", id, user.get("id"));
+        if (deleted != 1) {
+            throw new BusinessException(409, "Report record changed while it was being deleted.");
         }
-        jdbcTemplate.update("delete from agent_logs where id=? and student_id=? and agent_type='analysis'", id, user.get("id"));
+        Files.deleteIfExists(reportFile.toPath());
         Map<String, Object> result = new HashMap<String, Object>();
         result.put("ok", true);
         return result;
     }
 
+    private long insertAnalysisLog(Object studentId, String outputResult, String storedUrl) {
+        KeyHolder keyHolder = new GeneratedKeyHolder();
+        jdbcTemplate.update(connection -> {
+            java.sql.PreparedStatement statement = connection.prepareStatement(
+                    "insert into agent_logs(student_id,agent_type,output_result,report_url) values(?,?,?,?)",
+                    Statement.RETURN_GENERATED_KEYS);
+            statement.setObject(1, studentId);
+            statement.setString(2, "analysis");
+            statement.setString(3, outputResult);
+            statement.setString(4, storedUrl);
+            return statement;
+        }, keyHolder);
+        Number key = keyHolder.getKey();
+        if (key == null) {
+            throw new BusinessException(500, "报告记录创建失败");
+        }
+        return key.longValue();
+    }
+
+    private String reportDownloadUrl(long reportId) {
+        return "/api/agents/reports/" + reportId + "/download";
+    }
+
+    private File resolveReportFile(String reportUrl) throws IOException {
+        if (reportUrl == null || !reportUrl.startsWith("/reports/")) {
+            throw new BusinessException(404, "报告文件不存在");
+        }
+        String fileName = reportUrl.substring("/reports/".length());
+        if (fileName.length() == 0 || !new File(fileName).getName().equals(fileName)) {
+            throw new BusinessException(400, "报告文件路径无效");
+        }
+        File root = new File(reportDir).getCanonicalFile();
+        File file = new File(root, fileName).getCanonicalFile();
+        if (!root.equals(file.getParentFile())) {
+            throw new BusinessException(400, "报告文件路径无效");
+        }
+        return file;
+    }
+
     private Map<String, Object> runAgent(String type, String authorization) {
-        Map<String, Object> user = currentUserService.requireStudent(authorization);
+        Map<String, Object> user = currentUserService.requireLearner(authorization);
         RecommendationContext context = buildContext(user);
         String output = strategyFactory.getStrategy(type).execute(context);
         jdbcTemplate.update("insert into agent_logs(student_id,agent_type,output_result) values(?,?,?)",

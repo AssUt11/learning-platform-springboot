@@ -7,25 +7,26 @@ import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import java.io.File;
+import java.util.Arrays;
 
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
     private final String uploadDir;
-    private final String reportDir;
+    private final String[] allowedOrigins;
 
     public WebConfig(@Value("${app.upload-dir}") String uploadDir,
-                     @Value("${app.report-dir}") String reportDir) {
+                     @Value("${app.cors.allowed-origins}") String allowedOrigins) {
         this.uploadDir = uploadDir;
-        this.reportDir = reportDir;
+        this.allowedOrigins = Arrays.stream(allowedOrigins.split(","))
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .toArray(String[]::new);
     }
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/api/**")
-                .allowedOrigins(
-                        "http://localhost:5173", "http://127.0.0.1:5173",
-                        "http://localhost:8080", "http://127.0.0.1:8080",
-                        "http://localhost:8081", "http://127.0.0.1:8081")
+                .allowedOrigins(allowedOrigins)
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                 .allowedHeaders("*");
     }
@@ -33,7 +34,6 @@ public class WebConfig implements WebMvcConfigurer {
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         registry.addResourceHandler("/uploads/**").addResourceLocations(fileLocation(uploadDir));
-        registry.addResourceHandler("/reports/**").addResourceLocations(fileLocation(reportDir));
     }
 
     private String fileLocation(String path) {

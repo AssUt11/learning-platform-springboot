@@ -10,13 +10,17 @@ backend/target/
 # Node / Vite
 frontend/node_modules/
 frontend/dist/
+playwright-report/
+test-results/
 
 # Runtime files
 backend/uploads/
 backend/reports/
+backend/backups/
 backend/*.log
 backend/*.err.log
 frontend/*.log
+database/backups/*.sql
 
 # Local configuration
 *.env

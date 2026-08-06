@@ -1,25 +1,49 @@
 package com.learning.platform.config;
 
+import com.learning.platform.service.LegacyCourseMigrationService;
+import com.learning.platform.service.DemoCourseInitializerService;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.DataAccessException;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
+import java.sql.SQLException;
 
 @Component
 public class SchemaInitializer {
     private final JdbcTemplate jdbcTemplate;
+    private final LegacyCourseMigrationService legacyCourseMigrationService;
+    private final DemoCourseInitializerService demoCourseInitializerService;
+    private final String adminEmail;
+    private final String adminPassword;
+    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
-    public SchemaInitializer(JdbcTemplate jdbcTemplate) {
+    public SchemaInitializer(JdbcTemplate jdbcTemplate,
+                             LegacyCourseMigrationService legacyCourseMigrationService,
+                             DemoCourseInitializerService demoCourseInitializerService,
+                             @Value("${app.auth.admin-email}") String adminEmail,
+                             @Value("${app.auth.admin-password}") String adminPassword) {
         this.jdbcTemplate = jdbcTemplate;
+        this.legacyCourseMigrationService = legacyCourseMigrationService;
+        this.demoCourseInitializerService = demoCourseInitializerService;
+        this.adminEmail = adminEmail == null ? "" : adminEmail.trim().toLowerCase();
+        this.adminPassword = adminPassword == null ? "" : adminPassword;
     }
 
     @PostConstruct
     public void init() {
         createTables();
+        seedAdminAccount();
         seedCatalog();
+        seedStructuredCatalog();
         seedCourses();
         seedResources();
         backfillResourceContent();
+        backfillStructuredCatalog();
+        legacyCourseMigrationService.migrateAll();
+        demoCourseInitializerService.ensureDemoCourse();
     }
 
     private void createTables() {
@@ -28,7 +52,7 @@ public class SchemaInitializer {
                 + "name varchar(80) not null,"
                 + "email varchar(120) not null unique,"
                 + "password_hash varchar(255) not null,"
-                + "role enum('teacher','student') not null,"
+                + "role enum('admin','teacher','student') not null,"
                 + "created_at timestamp not null default current_timestamp,"
                 + "updated_at timestamp not null default current_timestamp on update current_timestamp,"
                 + "index idx_users_role(role)"
@@ -50,8 +74,35 @@ public class SchemaInitializer {
                 + "created_at timestamp not null default current_timestamp"
                 + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
 
+        jdbcTemplate.execute("create table if not exists categories ("
+                + "id bigint primary key auto_increment,"
+                + "name varchar(100) not null unique,"
+                + "description varchar(500) null,"
+                + "icon varchar(100) null,"
+                + "sort_order int not null default 0,"
+                + "status tinyint not null default 1,"
+                + "created_at timestamp not null default current_timestamp,"
+                + "updated_at timestamp not null default current_timestamp on update current_timestamp,"
+                + "index idx_categories_status_sort(status,sort_order)"
+                + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
+
+        jdbcTemplate.execute("create table if not exists directions ("
+                + "id bigint primary key auto_increment,"
+                + "category_id bigint not null,"
+                + "name varchar(100) not null,"
+                + "description varchar(500) null,"
+                + "sort_order int not null default 0,"
+                + "status tinyint not null default 1,"
+                + "created_at timestamp not null default current_timestamp,"
+                + "updated_at timestamp not null default current_timestamp on update current_timestamp,"
+                + "unique key uk_direction_category_name(category_id,name),"
+                + "index idx_directions_category_status(category_id,status,sort_order),"
+                + "constraint fk_directions_category foreign key(category_id) references categories(id) on delete cascade"
+                + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
+
         jdbcTemplate.execute("create table if not exists courses ("
                 + "id bigint primary key auto_increment,"
+                + "legacy_resource_id bigint null,"
                 + "teacher_id bigint null,"
                 + "title varchar(160) not null,"
                 + "subject varchar(60) not null,"
@@ -59,6 +110,7 @@ public class SchemaInitializer {
                 + "cover_url varchar(255) null,"
                 + "created_at timestamp not null default current_timestamp,"
                 + "updated_at timestamp not null default current_timestamp on update current_timestamp,"
+                + "unique key uk_courses_legacy_resource(legacy_resource_id),"
                 + "index idx_courses_subject(subject),"
                 + "constraint fk_courses_teacher foreign key(teacher_id) references users(id) on delete set null"
                 + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
@@ -82,6 +134,86 @@ public class SchemaInitializer {
                 + "constraint fk_resources_course foreign key(course_id) references courses(id) on delete set null"
                 + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
 
+        jdbcTemplate.execute("create table if not exists course_chapters ("
+                + "id bigint primary key auto_increment,"
+                + "course_id bigint not null,"
+                + "title varchar(160) not null,"
+                + "description varchar(500) null,"
+                + "sort_order int not null default 1,"
+                + "status enum('draft','published','disabled') not null default 'draft',"
+                + "created_at timestamp not null default current_timestamp,"
+                + "updated_at timestamp not null default current_timestamp on update current_timestamp,"
+                + "index idx_course_chapters_course_sort(course_id,sort_order),"
+                + "constraint fk_course_chapters_course foreign key(course_id) references courses(id) on delete restrict"
+                + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
+
+        jdbcTemplate.execute("create table if not exists course_lessons ("
+                + "id bigint primary key auto_increment,"
+                + "chapter_id bigint not null,"
+                + "title varchar(180) not null,"
+                + "lesson_type enum('video','article','document','exercise') not null,"
+                + "duration_seconds int not null default 0,"
+                + "free_preview tinyint not null default 0,"
+                + "sort_order int not null default 1,"
+                + "status enum('draft','ready','published','disabled') not null default 'draft',"
+                + "created_at timestamp not null default current_timestamp,"
+                + "updated_at timestamp not null default current_timestamp on update current_timestamp,"
+                + "index idx_course_lessons_chapter_sort(chapter_id,sort_order),"
+                + "constraint fk_course_lessons_chapter foreign key(chapter_id) references course_chapters(id) on delete restrict"
+                + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
+
+        jdbcTemplate.execute("create table if not exists lesson_assets ("
+                + "id bigint primary key auto_increment,"
+                + "lesson_id bigint not null,"
+                + "asset_type enum('video','article','document','exercise') not null,"
+                + "file_url varchar(255) null,"
+                + "file_name varchar(255) null,"
+                + "file_size bigint null,"
+                + "mime_type varchar(120) null,"
+                + "cover_url varchar(255) null,"
+                + "content_text mediumtext null,"
+                + "transcoding_status enum('pending','processing','ready','failed') not null default 'pending',"
+                + "status tinyint not null default 1,"
+                + "created_at timestamp not null default current_timestamp,"
+                + "updated_at timestamp not null default current_timestamp on update current_timestamp,"
+                + "index idx_lesson_assets_lesson(lesson_id),"
+                + "index idx_lesson_assets_lesson_status(lesson_id,status,transcoding_status),"
+                + "constraint fk_lesson_assets_lesson foreign key(lesson_id) references course_lessons(id) on delete restrict"
+                + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
+
+        jdbcTemplate.execute("create table if not exists course_legacy_migration ("
+                + "resource_id bigint primary key,"
+                + "previous_course_id bigint null,"
+                + "course_id bigint not null,"
+                + "chapter_id bigint not null,"
+                + "lesson_id bigint not null,"
+                + "asset_id bigint null,"
+                + "migrated_at timestamp not null default current_timestamp,"
+                + "unique key uk_course_legacy_migration_course(course_id),"
+                + "index idx_course_legacy_migration_lesson(lesson_id),"
+                + "constraint fk_course_legacy_resource foreign key(resource_id) references resources(id) on delete restrict,"
+                + "constraint fk_course_legacy_course foreign key(course_id) references courses(id) on delete restrict,"
+                + "constraint fk_course_legacy_chapter foreign key(chapter_id) references course_chapters(id) on delete restrict,"
+                + "constraint fk_course_legacy_lesson foreign key(lesson_id) references course_lessons(id) on delete restrict,"
+                + "constraint fk_course_legacy_asset foreign key(asset_id) references lesson_assets(id) on delete restrict"
+                + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
+
+        jdbcTemplate.execute("create table if not exists course_demo_seeds ("
+                + "seed_key varchar(100) primary key,"
+                + "resource_id bigint not null,"
+                + "teacher_id bigint not null,"
+                + "chapter_a_id bigint not null,"
+                + "chapter_b_id bigint not null,"
+                + "lesson_a_id bigint not null,"
+                + "lesson_b_id bigint not null,"
+                + "asset_a_id bigint not null,"
+                + "asset_b_id bigint not null,"
+                + "created_at timestamp not null default current_timestamp,"
+                + "unique key uk_course_demo_resource(resource_id),"
+                + "constraint fk_course_demo_resource foreign key(resource_id) references resources(id) on delete restrict,"
+                + "constraint fk_course_demo_teacher foreign key(teacher_id) references users(id) on delete restrict"
+                + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
+
         jdbcTemplate.execute("create table if not exists knowledge_nodes ("
                 + "id bigint primary key auto_increment,"
                 + "subject varchar(60) not null,"
@@ -92,16 +224,6 @@ public class SchemaInitializer {
                 + "created_at timestamp not null default current_timestamp,"
                 + "unique key uk_subject_title(subject, title),"
                 + "index idx_knowledge_subject(subject)"
-                + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
-
-        jdbcTemplate.execute("create table if not exists knowledge_edges ("
-                + "id bigint primary key auto_increment,"
-                + "source_node_id bigint not null,"
-                + "target_node_id bigint not null,"
-                + "relation_type varchar(40) not null default '前修',"
-                + "created_at timestamp not null default current_timestamp,"
-                + "constraint fk_edges_source foreign key(source_node_id) references knowledge_nodes(id) on delete cascade,"
-                + "constraint fk_edges_target foreign key(target_node_id) references knowledge_nodes(id) on delete cascade"
                 + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
 
         jdbcTemplate.execute("create table if not exists learning_records ("
@@ -117,9 +239,28 @@ public class SchemaInitializer {
                 + "created_at timestamp not null default current_timestamp,"
                 + "index idx_records_student(student_id),"
                 + "index idx_records_subject(subject),"
+                + "index idx_records_student_created(student_id,created_at),"
+                + "index idx_records_resource_student(resource_id,student_id),"
                 + "unique key uk_student_record_key(student_id, record_key),"
                 + "constraint fk_records_student foreign key(student_id) references users(id) on delete cascade,"
                 + "constraint fk_records_resource foreign key(resource_id) references resources(id) on delete set null"
+                + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
+
+        jdbcTemplate.execute("create table if not exists lesson_progress ("
+                + "id bigint primary key auto_increment,"
+                + "user_id bigint not null,"
+                + "lesson_id bigint not null,"
+                + "last_position_seconds int not null default 0,"
+                + "duration_seconds int not null default 0,"
+                + "progress_percent tinyint not null default 0,"
+                + "completed tinyint not null default 0,"
+                + "last_studied_at timestamp not null default current_timestamp on update current_timestamp,"
+                + "created_at timestamp not null default current_timestamp,"
+                + "unique key uk_lesson_progress_user_lesson(user_id,lesson_id),"
+                + "index idx_lesson_progress_user_recent(user_id,last_studied_at),"
+                + "index idx_lesson_progress_lesson(lesson_id),"
+                + "constraint fk_lesson_progress_user foreign key(user_id) references users(id) on delete cascade,"
+                + "constraint fk_lesson_progress_lesson foreign key(lesson_id) references course_lessons(id) on delete restrict"
                 + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
 
         jdbcTemplate.execute("create table if not exists resource_favorites ("
@@ -133,6 +274,81 @@ public class SchemaInitializer {
                 + "constraint fk_favorites_resource foreign key(resource_id) references resources(id) on delete cascade"
                 + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
 
+        jdbcTemplate.execute("create table if not exists course_questions ("
+                + "id bigint primary key auto_increment,"
+                + "resource_id bigint not null,"
+                + "student_id bigint not null,"
+                + "content varchar(500) not null,"
+                + "answer_count int not null default 0,"
+                + "created_at timestamp not null default current_timestamp,"
+                + "index idx_course_questions_resource_created(resource_id,created_at),"
+                + "constraint fk_questions_resource foreign key(resource_id) references resources(id) on delete cascade,"
+                + "constraint fk_questions_student foreign key(student_id) references users(id) on delete cascade"
+                + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
+
+        jdbcTemplate.execute("create table if not exists course_notes ("
+                + "id bigint primary key auto_increment,"
+                + "resource_id bigint not null,"
+                + "student_id bigint not null,"
+                + "lesson_title varchar(180) not null default '课程总览',"
+                + "content text not null,"
+                + "created_at timestamp not null default current_timestamp,"
+                + "updated_at timestamp not null default current_timestamp on update current_timestamp,"
+                + "index idx_course_notes_student_resource(student_id,resource_id,updated_at),"
+                + "constraint fk_notes_resource foreign key(resource_id) references resources(id) on delete cascade,"
+                + "constraint fk_notes_student foreign key(student_id) references users(id) on delete cascade"
+                + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
+
+        jdbcTemplate.execute("create table if not exists course_reviews ("
+                + "id bigint primary key auto_increment,"
+                + "resource_id bigint not null,"
+                + "student_id bigint not null,"
+                + "rating tinyint not null,"
+                + "content varchar(1000) not null,"
+                + "created_at timestamp not null default current_timestamp,"
+                + "updated_at timestamp not null default current_timestamp on update current_timestamp,"
+                + "unique key uk_course_review_student(resource_id,student_id),"
+                + "index idx_course_reviews_resource_updated(resource_id,updated_at),"
+                + "constraint fk_reviews_resource foreign key(resource_id) references resources(id) on delete cascade,"
+                + "constraint fk_reviews_student foreign key(student_id) references users(id) on delete cascade"
+                + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
+
+        jdbcTemplate.execute("create table if not exists course_feedback_replies ("
+                + "id bigint primary key auto_increment,"
+                + "target_type enum('question','review') not null,"
+                + "target_id bigint not null,"
+                + "teacher_id bigint not null,"
+                + "content varchar(1000) not null,"
+                + "created_at timestamp not null default current_timestamp,"
+                + "index idx_feedback_replies_target(target_type,target_id,created_at),"
+                + "constraint fk_feedback_reply_teacher foreign key(teacher_id) references users(id) on delete cascade"
+                + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
+
+        jdbcTemplate.execute("create table if not exists direct_messages ("
+                + "id bigint primary key auto_increment,"
+                + "sender_id bigint not null,"
+                + "recipient_id bigint not null,"
+                + "content varchar(2000) not null,"
+                + "is_read tinyint not null default 0,"
+                + "created_at timestamp not null default current_timestamp,"
+                + "index idx_messages_conversation(sender_id,recipient_id,created_at),"
+                + "index idx_messages_recipient_read(recipient_id,is_read,created_at),"
+                + "constraint fk_messages_sender foreign key(sender_id) references users(id) on delete cascade,"
+                + "constraint fk_messages_recipient foreign key(recipient_id) references users(id) on delete cascade"
+                + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
+
+        jdbcTemplate.execute("create table if not exists admin_audit_logs ("
+                + "id bigint primary key auto_increment,"
+                + "admin_id bigint not null,"
+                + "action_type varchar(80) not null,"
+                + "target_type varchar(80) not null,"
+                + "target_id bigint null,"
+                + "detail varchar(500) null,"
+                + "created_at timestamp not null default current_timestamp,"
+                + "index idx_admin_audit_created(created_at),"
+                + "constraint fk_admin_audit_user foreign key(admin_id) references users(id) on delete cascade"
+                + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
+
         jdbcTemplate.execute("create table if not exists agent_logs ("
                 + "id bigint primary key auto_increment,"
                 + "student_id bigint not null,"
@@ -142,19 +358,76 @@ public class SchemaInitializer {
                 + "report_url varchar(255) null,"
                 + "created_at timestamp not null default current_timestamp,"
                 + "index idx_agent_student(student_id),"
+                + "index idx_agent_student_type_created(student_id,agent_type,created_at),"
                 + "constraint fk_agent_student foreign key(student_id) references users(id) on delete cascade"
                 + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
 
         safeExecute("alter table learning_records add column record_key varchar(220) null after resource_id");
         safeExecute("alter table learning_records add unique key uk_student_record_key(student_id, record_key)");
+        safeExecute("alter table courses add column legacy_resource_id bigint null after id");
+        safeExecute("alter table courses add unique key uk_courses_legacy_resource(legacy_resource_id)");
+        safeExecute("alter table course_legacy_migration add column previous_course_id bigint null after resource_id");
         safeExecute("alter table resources add column content text null after description");
+        safeExecute("alter table resources add column category_id bigint null after course_id");
+        safeExecute("alter table resources add column direction_id bigint null after category_id");
+        safeExecute("alter table resources add column estimated_minutes int not null default 45 after level");
+        safeExecute("alter table resources add column learner_count int not null default 0 after estimated_minutes");
+        safeExecute("alter table resources add column status tinyint not null default 1 after learner_count");
+        safeExecute("alter table resources add column review_status enum('pending','approved','rejected') not null default 'approved' after status");
+        safeExecute("alter table resources add column review_feedback varchar(500) null after review_status");
+        safeExecute("alter table resources add column reviewed_by bigint null after review_feedback");
+        safeExecute("alter table resources add column reviewed_at timestamp null after reviewed_by");
+        safeExecute("alter table resources add column lifecycle_status enum('active','archived') not null default 'active' after reviewed_at");
+        safeExecute("alter table resources add column archived_at timestamp null after lifecycle_status");
+        safeExecute("alter table resources add column archive_reason varchar(500) null after archived_at");
+        safeExecute("alter table users modify column role enum('admin','teacher','student') not null");
+        safeExecute("alter table resources add index idx_resources_category(category_id)");
+        safeExecute("alter table resources add index idx_resources_direction(direction_id)");
+        safeExecute("alter table resources add index idx_resources_level(level)");
+        safeExecute("alter table resources add index idx_resources_catalog_sort(status,category_id,direction_id,created_at)");
+        safeExecute("alter table resources add index idx_resources_review(review_status,status,created_at)");
+        safeExecute("alter table resources add index idx_resources_lifecycle(lifecycle_status,status,updated_at)");
+        safeExecute("alter table learning_records add index idx_records_student_created(student_id,created_at)");
+        safeExecute("alter table learning_records add index idx_records_resource_student(resource_id,student_id)");
+        safeExecute("alter table agent_logs add index idx_agent_student_type_created(student_id,agent_type,created_at)");
+    }
+
+    private void seedAdminAccount() {
+        if (adminEmail.isEmpty() || adminPassword.length() < 8) {
+            throw new IllegalStateException("Admin email and password must be configured, and the password must contain at least 8 characters.");
+        }
+        Integer count = jdbcTemplate.queryForObject("select count(*) from users where email=?", Integer.class, adminEmail);
+        if (count != null && count > 0) {
+            jdbcTemplate.update("update users set role='admin' where email=?", adminEmail);
+            return;
+        }
+        jdbcTemplate.update("insert into users(name,email,password_hash,role) values(?,?,?,'admin')",
+                "平台管理员", adminEmail, passwordEncoder.encode(adminPassword));
     }
 
     private void safeExecute(String sql) {
         try {
             jdbcTemplate.execute(sql);
-        } catch (Exception ignored) {
+        } catch (DataAccessException exception) {
+            if (isDuplicateColumnOrIndex(exception)) {
+                return;
+            }
+            throw new IllegalStateException("Database migration failed: " + sql, exception);
         }
+    }
+
+    private boolean isDuplicateColumnOrIndex(DataAccessException exception) {
+        Throwable cause = exception;
+        while (cause != null) {
+            if (cause instanceof SQLException) {
+                int errorCode = ((SQLException) cause).getErrorCode();
+                if (errorCode == 1060 || errorCode == 1061) {
+                    return true;
+                }
+            }
+            cause = cause.getCause();
+        }
+        return false;
     }
 
     private void seedCatalog() {
@@ -183,6 +456,56 @@ public class SchemaInitializer {
         seedNodes("大数据", "Hadoop", "Spark", "Hive", "实时计算");
         seedNodes("云计算", "Docker容器", "Kubernetes", "云原生部署", "DevOps");
         seedNodes("物联网", "单片机基础", "传感器应用", "MQTT通信", "边缘计算");
+    }
+
+    private void seedStructuredCatalog() {
+        seedLearningCategory("软件工程", "面向软件开发、测试、协作和交付的综合学习大类", 1,
+                "Java", "Python", "C#", "前端开发", "数据库", "软件测试");
+        seedLearningCategory("人工智能", "从机器学习、深度学习到自然语言处理和视觉任务", 2,
+                "机器学习", "深度学习", "自然语言处理", "计算机视觉");
+        seedLearningCategory("大数据", "覆盖数据采集、存储、计算、建模和可视化", 3,
+                "Hadoop", "Spark", "数据仓库", "数据可视化");
+        seedLearningCategory("云计算", "面向 Linux、容器、集群编排与云原生服务治理", 4,
+                "Linux", "Docker", "Kubernetes", "微服务");
+        seedLearningCategory("网络安全", "覆盖 Web 安全、密码学、协议安全和安全运维", 5,
+                "Web安全", "密码学", "网络协议安全", "安全运维");
+        seedLearningCategory("移动与物联网", "面向移动应用、设备通信、边缘计算和嵌入式开发", 6,
+                "移动开发", "物联网", "嵌入式开发");
+    }
+
+    private void seedLearningCategory(String name, String description, int sortOrder, String... directions) {
+        jdbcTemplate.update("insert into categories(name,description,sort_order,status) values(?,?,?,1) "
+                        + "on duplicate key update description=values(description),sort_order=values(sort_order),status=1",
+                name, description, sortOrder);
+        Long categoryId = jdbcTemplate.queryForObject("select id from categories where name=?", Long.class, name);
+        for (int index = 0; index < directions.length; index++) {
+            jdbcTemplate.update("insert into directions(category_id,name,sort_order,status) values(?,?,?,1) "
+                            + "on duplicate key update sort_order=values(sort_order),status=1",
+                    categoryId, directions[index], index + 1);
+        }
+    }
+
+    private void backfillStructuredCatalog() {
+        jdbcTemplate.update("update resources r join directions d on d.name=r.subject "
+                + "set r.direction_id=d.id,r.category_id=d.category_id where r.direction_id is null or r.category_id is null");
+        jdbcTemplate.update("update resources r join categories c on c.name=r.subject "
+                + "set r.category_id=c.id where r.category_id is null");
+        backfillDirectionByTitle("机器学习", "机器学习");
+        backfillDirectionByTitle("软件测试", "软件测试");
+        backfillDirectionByTitle("Web 安全", "Web安全");
+        backfillDirectionByTitle("Android", "移动开发");
+        backfillDirectionByTitle("Spark", "Spark");
+        backfillDirectionByTitle("Docker", "Docker");
+        backfillDirectionByTitle("MQTT", "物联网");
+        jdbcTemplate.update("update resources set estimated_minutes=case when estimated_minutes<=0 then 45 else estimated_minutes end");
+        jdbcTemplate.update("update resources r set learner_count=(select count(distinct lr.student_id) from learning_records lr where lr.resource_id=r.id)");
+    }
+
+    private void backfillDirectionByTitle(String keyword, String directionName) {
+        jdbcTemplate.update("update resources r join directions d on d.name=? "
+                        + "set r.direction_id=d.id,r.category_id=d.category_id "
+                        + "where r.direction_id is null and r.title like ?",
+                directionName, "%" + keyword + "%");
     }
 
     private void seedCourses() {
@@ -221,7 +544,7 @@ public class SchemaInitializer {
                 + "'第一阶段关注概念。不要急着记忆大量细节，先用自己的话解释课程标题中的关键词，并把它和已经学过的知识建立联系。如果遇到陌生名词，可以先写下猜测，再通过示例代码、流程图或操作截图验证。第二阶段关注流程。把课程内容拆成输入、处理、输出三个部分，说明每一步产生什么结果，为什么需要这样设计。第三阶段关注实践。选择一个最小练习，例如完成一个接口、编写一个查询、实现一个组件、整理一组数据或搭建一个简单环境。练习完成后要回看错误信息和调试过程，因为这些细节往往比最终结果更能反映掌握程度。',"
                 + "'学习完成后，请用五句话总结：本节最重要的概念是什么，关键步骤有哪些，容易混淆的点在哪里，可以迁移到什么项目场景，下一步应该补强哪项能力。建议把完成度分为了解、会做、能解释、能迁移四级。如果只能跟着步骤完成，说明还停留在会做阶段；如果能够脱离教程复述原因并改造练习，才算真正掌握。',"
                 + "'本课程的文本学习内容也可以作为复习清单使用。再次复习时，请优先检查自己是否能独立画出流程、说出关键参数、解释一次失败案例，并把学习记录更新到平台中。这样系统后续生成学习路径、薄弱点分析和资源推荐时，才能更准确地反映你的真实状态。') "
-                + "where content is null or char_length(content)<500");
+                + "where content is null or char_length(trim(content))=0");
     }
 
     private void seedCategory(String name, String description) {

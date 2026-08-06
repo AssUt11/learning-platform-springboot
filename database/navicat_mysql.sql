@@ -7,7 +7,6 @@ use learning_platform;
 drop table if exists agent_logs;
 drop table if exists learning_records;
 drop table if exists resource_favorites;
-drop table if exists knowledge_edges;
 drop table if exists knowledge_nodes;
 drop table if exists resources;
 drop table if exists courses;
@@ -66,6 +65,9 @@ create table resources (
   description text null,
   content text null,
   file_url varchar(255) null,
+  lifecycle_status enum('active', 'archived') not null default 'active',
+  archived_at timestamp null,
+  archive_reason varchar(500) null,
   created_at timestamp not null default current_timestamp,
   updated_at timestamp not null default current_timestamp on update current_timestamp,
   index idx_resources_subject(subject),
@@ -84,16 +86,6 @@ create table knowledge_nodes (
   created_at timestamp not null default current_timestamp,
   unique key uk_subject_title(subject, title),
   index idx_knowledge_subject(subject)
-) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
-
-create table knowledge_edges (
-  id bigint primary key auto_increment,
-  source_node_id bigint not null,
-  target_node_id bigint not null,
-  relation_type varchar(40) not null default '前修',
-  created_at timestamp not null default current_timestamp,
-  constraint fk_edges_source foreign key(source_node_id) references knowledge_nodes(id) on delete cascade,
-  constraint fk_edges_target foreign key(target_node_id) references knowledge_nodes(id) on delete cascade
 ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci;
 
 create table learning_records (

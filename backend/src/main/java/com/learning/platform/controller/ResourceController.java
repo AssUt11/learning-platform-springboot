@@ -1,16 +1,27 @@
 package com.learning.platform.controller;
 
+import com.learning.platform.exception.BusinessException;
 import com.learning.platform.pattern.LearningRecordSubject;
 import com.learning.platform.pattern.ResourceRowAdapter;
 import com.learning.platform.service.CurrentUserService;
+import com.learning.platform.service.CourseContentValidationService;
 import com.learning.platform.service.FileStorageService;
+import com.learning.platform.service.LegacyCourseMigrationService;
 import com.learning.platform.util.ApiResponses;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.sql.PreparedStatement;
+import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -20,15 +31,21 @@ public class ResourceController {
     private final JdbcTemplate jdbcTemplate;
     private final CurrentUserService currentUserService;
     private final FileStorageService fileStorageService;
+    private final LegacyCourseMigrationService legacyCourseMigrationService;
+    private final CourseContentValidationService validationService;
     private final LearningRecordSubject learningRecordSubject;
 
     public ResourceController(JdbcTemplate jdbcTemplate,
                               CurrentUserService currentUserService,
-                              FileStorageService fileStorageService,
-                              LearningRecordSubject learningRecordSubject) {
+                               FileStorageService fileStorageService,
+                               LegacyCourseMigrationService legacyCourseMigrationService,
+                               CourseContentValidationService validationService,
+                               LearningRecordSubject learningRecordSubject) {
         this.jdbcTemplate = jdbcTemplate;
         this.currentUserService = currentUserService;
         this.fileStorageService = fileStorageService;
+        this.legacyCourseMigrationService = legacyCourseMigrationService;
+        this.validationService = validationService;
         this.learningRecordSubject = learningRecordSubject;
     }
 
@@ -40,13 +57,14 @@ public class ResourceController {
                                              @RequestParam(required = false) String keyword,
                                              @RequestParam(required = false) String type) {
         Map<String, Object> user = currentUserService.optional(authorization);
-        boolean student = user != null && "student".equals(user.get("role"));
+        boolean learner = user != null
+                && ("student".equals(user.get("role")) || "teacher".equals(user.get("role")));
         int pageNumber = Math.max(page, 1);
         int pageSize = Math.min(Math.max(size, 1), 50);
         int offset = (pageNumber - 1) * pageSize;
-        String favoriteSelect = student ? "mine.id is not null favorited," : "false favorited,";
-        String progressSelect = student ? "coalesce(myr.progress,0) progress " : "0 progress ";
-        String studentJoins = student
+        String favoriteSelect = learner ? "mine.id is not null favorited," : "false favorited,";
+        String progressSelect = learner ? "coalesce(myr.progress,0) progress " : "0 progress ";
+        String learnerJoins = learner
                 ? "left join resource_favorites mine on mine.resource_id=r.id and mine.student_id=? "
                 + "left join learning_records myr on myr.resource_id=r.id and myr.student_id=? "
                 : "";
@@ -67,11 +85,11 @@ public class ResourceController {
                 + progressSelect
                 + resourceBase
                 + "left join (select resource_id,count(*) favoriteCount from resource_favorites group by resource_id) f on f.resource_id=r.id "
-                + studentJoins
+                + learnerJoins
                 + where
                 + "order by r.created_at desc limit ? offset ?";
         List<Object> params = new ArrayList<Object>();
-        if (student) {
+        if (learner) {
             params.add(user.get("id"));
             params.add(user.get("id"));
         }
@@ -92,20 +110,25 @@ public class ResourceController {
     }
 
     @PostMapping("/resources/{id}/favorite")
+    @Transactional
     public Map<String, Object> toggleFavorite(@RequestHeader(value = "Authorization", required = false) String authorization,
                                               @PathVariable Long id) {
-        Map<String, Object> user = currentUserService.requireStudent(authorization);
-        Integer count = jdbcTemplate.queryForObject(
-                "select count(*) from resource_favorites where student_id=? and resource_id=?",
-                Integer.class, user.get("id"), id);
-        boolean favorited = count == null || count == 0;
+        Map<String, Object> user = currentUserService.requireLearner(authorization);
+        long resourceId = positiveLong(id, "resourceId");
+        List<Map<String, Object>> resources = jdbcTemplate.queryForList(
+                "select id from resources where id=? for update", resourceId);
+        if (resources.isEmpty()) {
+            throw new BusinessException(404, "Resource does not exist.");
+        }
+        int deleted = jdbcTemplate.update(
+                "delete from resource_favorites where student_id=? and resource_id=?", user.get("id"), resourceId);
+        boolean favorited = deleted == 0;
         if (favorited) {
-            jdbcTemplate.update("insert ignore into resource_favorites(student_id,resource_id) values(?,?)", user.get("id"), id);
-        } else {
-            jdbcTemplate.update("delete from resource_favorites where student_id=? and resource_id=?", user.get("id"), id);
+            jdbcTemplate.update("insert into resource_favorites(student_id,resource_id) values(?,?)",
+                    user.get("id"), resourceId);
         }
         Integer favoriteCount = jdbcTemplate.queryForObject(
-                "select count(*) from resource_favorites where resource_id=?", Integer.class, id);
+                "select count(*) from resource_favorites where resource_id=?", Integer.class, resourceId);
         Map<String, Object> result = ApiResponses.ok();
         result.put("favorited", favorited);
         result.put("favoriteCount", favoriteCount == null ? 0 : favoriteCount);
@@ -113,20 +136,72 @@ public class ResourceController {
     }
 
     @PostMapping("/teacher/resources")
+    @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> createResource(@RequestHeader(value = "Authorization", required = false) String authorization,
                                               @RequestParam String title,
                                               @RequestParam String subject,
                                               @RequestParam(defaultValue = "material") String type,
-                                              @RequestParam(defaultValue = "Beginner") String level,
+                                              @RequestParam(defaultValue = "入门") String level,
                                               @RequestParam(defaultValue = "") String description,
                                               @RequestParam(defaultValue = "") String content,
                                               @RequestParam(value = "file", required = false) MultipartFile file) throws IOException {
         Map<String, Object> user = currentUserService.requireTeacher(authorization);
+        String normalizedTitle = requiredText(title, "title", 160);
+        String normalizedSubject = requiredText(subject, "subject", 60);
+        String normalizedType = resourceType(type);
+        String normalizedLevel = requiredText(level, "level", 40);
+        String normalizedDescription = text(description);
+        String normalizedContent = textOrDefault(content,
+                defaultContent(normalizedTitle, normalizedSubject, normalizedDescription));
         String fileUrl = fileStorageService.storeResourceFile(file);
-        jdbcTemplate.update("insert into resources(teacher_id,title,subject,type,level,description,content,file_url) values(?,?,?,?,?,?,?,?)",
-                user.get("id"), title, subject, type, level, description, textOrDefault(content, defaultContent(title, subject, description)), fileUrl);
+        try {
+            KeyHolder keyHolder = new GeneratedKeyHolder();
+            jdbcTemplate.update(connection -> {
+                PreparedStatement statement = connection.prepareStatement(
+                        "insert into resources(teacher_id,title,subject,type,level,description,content,file_url,status,review_status) "
+                                + "values(?,?,?,?,?,?,?,?,0,'pending')",
+                        Statement.RETURN_GENERATED_KEYS);
+                statement.setObject(1, user.get("id"));
+                statement.setString(2, normalizedTitle);
+                statement.setString(3, normalizedSubject);
+                statement.setString(4, normalizedType);
+                statement.setString(5, normalizedLevel);
+                statement.setString(6, normalizedDescription);
+                statement.setString(7, normalizedContent);
+                statement.setString(8, fileUrl);
+                return statement;
+            }, keyHolder);
+            Number key = keyHolder.getKey();
+            if (key == null) {
+                throw new IllegalStateException("Failed to read the new course ID.");
+            }
+            long resourceId = key.longValue();
+            legacyCourseMigrationService.ensureStructure(resourceId);
+            Map<String, Object> result = ApiResponses.ok();
+            result.put("courseId", resourceId);
+            result.put("fileUrl", fileUrl);
+            result.put("validation", validationService.validateForPublication(resourceId));
+            return result;
+        } catch (RuntimeException exception) {
+            cleanupFailedUpload(fileUrl, exception);
+            throw exception;
+        }
+    }
+
+    @GetMapping("/teacher/resources")
+    public Map<String, Object> teacherResources(
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        Map<String, Object> user = currentUserService.requireTeacher(authorization);
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "select r.id,r.title,r.subject,r.type,r.level,r.description,r.content,r.file_url fileUrl,"
+                        + "r.estimated_minutes minutes,r.learner_count learnerCount,r.status,"
+                        + "r.review_status reviewStatus,r.review_feedback reviewFeedback,r.reviewed_at reviewedAt,"
+                        + "r.created_at createdAt,r.updated_at updatedAt "
+                        + "from resources r where r.teacher_id=? order by r.updated_at desc,r.id desc",
+                user.get("id"));
         Map<String, Object> result = ApiResponses.ok();
-        result.put("fileUrl", fileUrl);
+        result.put("resources", rows);
+        result.put("total", rows.size());
         return result;
     }
 
@@ -135,48 +210,70 @@ public class ResourceController {
                                               @PathVariable Long id,
                                               @RequestBody Map<String, Object> body) {
         Map<String, Object> user = currentUserService.requireTeacher(authorization);
-        int updated = jdbcTemplate.update("update resources set title=?,subject=?,type=?,level=?,description=? where id=? and teacher_id=?",
-                text(body.get("title")), text(body.get("subject")), textOrDefault(body.get("type"), "material"),
-                textOrDefault(body.get("level"), "入门"), text(body.get("description")), id, user.get("id"));
-        jdbcTemplate.update("update resources set content=? where id=? and teacher_id=?",
-                textOrDefault(body.get("content"), defaultContent(body.get("title"), body.get("subject"), body.get("description"))),
-                id, user.get("id"));
-        if (updated == 0) {
-            throw new RuntimeException("Resource not found or cannot be edited.");
+        if (body == null) {
+            throw new BusinessException(400, "Resource data is required.");
         }
-        return ApiResponses.ok();
+        String title = requiredText(body.get("title"), "title", 160);
+        String subject = requiredText(body.get("subject"), "subject", 60);
+        String type = resourceType(body.get("type"));
+        String level = requiredText(textOrDefault(body.get("level"), "入门"), "level", 40);
+        String description = text(body.get("description"));
+        String content = textOrDefault(body.get("content"), defaultContent(title, subject, description));
+        int updated = jdbcTemplate.update(
+                "update resources set title=?,subject=?,type=?,level=?,description=?,content=?,status=0,review_status='pending',review_feedback=null,reviewed_by=null,reviewed_at=null where id=? and teacher_id=?",
+                title, subject, type, level, description, content, id, user.get("id"));
+        if (updated == 0) {
+            throw new BusinessException(404, "Resource not found or cannot be edited.");
+        }
+        legacyCourseMigrationService.syncCourse(id.longValue());
+        Map<String, Object> result = ApiResponses.ok();
+        result.put("validation", validationService.validateForPublication(id.longValue()));
+        return result;
     }
 
     @DeleteMapping("/teacher/resources/{id}")
+    @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> deleteResource(@RequestHeader(value = "Authorization", required = false) String authorization,
-                                              @PathVariable Long id) {
+                                              @PathVariable Long id) throws IOException {
         Map<String, Object> user = currentUserService.requireTeacher(authorization);
-        int deleted = jdbcTemplate.update("delete from resources where id=? and teacher_id=?", id, user.get("id"));
-        if (deleted == 0) {
-            throw new RuntimeException("Resource not found or cannot be deleted.");
+        long resourceId = positiveLong(id, "resourceId");
+        int deleted = jdbcTemplate.update(
+                "update resources set status=0,review_status='pending',review_feedback=null,reviewed_by=null,reviewed_at=null "
+                        + "where id=? and teacher_id=?",
+                resourceId, user.get("id"));
+        if (deleted != 1) {
+            throw new BusinessException(404, "Resource not found or cannot be deleted.");
         }
         return ApiResponses.ok();
     }
 
     @PostMapping("/preferences")
+    @Transactional
     public Map<String, Object> savePreferences(@RequestHeader(value = "Authorization", required = false) String authorization,
                                                @RequestBody Map<String, Object> body) {
-        Map<String, Object> user = currentUserService.requireStudent(authorization);
+        Map<String, Object> user = currentUserService.requireLearner(authorization);
+        Object subjectsObject = body == null ? null : body.get("subjects");
+        if (!(subjectsObject instanceof List)) {
+            throw new BusinessException(400, "subjects must be a list.");
+        }
+        LinkedHashSet<String> subjects = new LinkedHashSet<String>();
+        for (Object value : (List<?>) subjectsObject) {
+            subjects.add(requiredText(value, "subject", 60));
+        }
+        if (subjects.isEmpty() || subjects.size() > 3) {
+            throw new BusinessException(400, "Please select between 1 and 3 subjects.");
+        }
         jdbcTemplate.update("delete from student_preferences where student_id=?", user.get("id"));
-        Object subjectsObject = body.get("subjects");
-        if (subjectsObject instanceof List) {
-            List<?> subjects = (List<?>) subjectsObject;
-            for (Object subject : subjects) {
-                jdbcTemplate.update("insert into student_preferences(student_id,subject) values(?,?)",
-                        user.get("id"), String.valueOf(subject));
-            }
+        for (String selectedSubject : subjects) {
+            jdbcTemplate.update("insert into student_preferences(student_id,subject) values(?,?)",
+                    user.get("id"), selectedSubject);
         }
         return ApiResponses.ok();
     }
 
     @GetMapping("/preferences")
     public Map<String, Object> getPreferences(@RequestHeader(value = "Authorization", required = false) String authorization) {
-        Map<String, Object> user = currentUserService.requireStudent(authorization);
+        Map<String, Object> user = currentUserService.requireLearner(authorization);
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                 "select subject from student_preferences where student_id=? order by id", user.get("id"));
         List<String> subjects = new ArrayList<String>();
@@ -189,23 +286,22 @@ public class ResourceController {
     @PostMapping("/learning/records")
     public Map<String, Object> saveRecord(@RequestHeader(value = "Authorization", required = false) String authorization,
                                           @RequestBody Map<String, Object> body) {
-        Map<String, Object> user = currentUserService.requireLogin(authorization);
-        String recordKey = recordKey(body);
-        Object progress = body.getOrDefault("progress", 0);
+        Map<String, Object> user = currentUserService.requireLearner(authorization);
+        Map<String, Object> record = validatedRecord(body);
         jdbcTemplate.update("insert into learning_records(student_id,resource_id,record_key,subject,knowledge_node,progress) "
                         + "values(?,?,?,?,?,?) "
                         + "on duplicate key update progress=greatest(progress,values(progress)),"
                         + "subject=coalesce(values(subject),subject),knowledge_node=coalesce(values(knowledge_node),knowledge_node),"
                         + "created_at=current_timestamp",
-                user.get("id"), body.get("resourceId"), recordKey, body.get("subject"),
-                body.get("knowledgeNode"), progress);
-        learningRecordSubject.notifyCreated(user, body);
+                user.get("id"), record.get("resourceId"), record.get("recordKey"), record.get("subject"),
+                record.get("knowledgeNode"), record.get("progress"));
+        learningRecordSubject.notifyCreated(user, record);
         return ApiResponses.ok();
     }
 
     @GetMapping("/learning/summary")
     public Map<String, Object> learningSummary(@RequestHeader(value = "Authorization", required = false) String authorization) {
-        Map<String, Object> user = currentUserService.requireStudent(authorization);
+        Map<String, Object> user = currentUserService.requireLearner(authorization);
         Object studentId = user.get("id");
         Map<String, Object> result = ApiResponses.ok();
         result.put("summary", studentSummary(studentId));
@@ -295,6 +391,8 @@ public class ResourceController {
 
     private String resourceWhere(String subject, String keyword, String type, List<Object> params) {
         List<String> conditions = new ArrayList<String>();
+        conditions.add("r.status=1");
+        conditions.add("r.review_status='approved'");
         if (hasText(subject)) {
             conditions.add("r.subject=?");
             params.add(subject.trim());
@@ -318,14 +416,94 @@ public class ResourceController {
         return "where " + String.join(" and ", conditions) + " ";
     }
 
-    private String recordKey(Map<String, Object> body) {
-        Object resourceId = body.get("resourceId");
-        if (resourceId != null && String.valueOf(resourceId).trim().length() > 0) {
-            return "resource:" + resourceId;
+    private Map<String, Object> validatedRecord(Map<String, Object> body) {
+        if (body == null) {
+            throw new BusinessException(400, "Learning record is required.");
         }
-        String subject = textOrDefault(body.get("subject"), "unknown");
-        String node = textOrDefault(body.get("knowledgeNode"), "unknown");
-        return "node:" + subject + ":" + node;
+
+        Map<String, Object> record = new HashMap<String, Object>();
+        record.put("progress", progress(body.get("progress")));
+        Object resourceValue = body.get("resourceId");
+        if (resourceValue != null && !text(resourceValue).isEmpty()) {
+            long resourceId = positiveLong(resourceValue, "resourceId");
+            List<Map<String, Object>> resources = jdbcTemplate.queryForList(
+                    "select id,subject from resources where id=?", resourceId);
+            if (resources.isEmpty()) {
+                throw new BusinessException(404, "Resource does not exist.");
+            }
+            record.put("resourceId", resourceId);
+            record.put("recordKey", "resource:" + resourceId);
+            record.put("subject", String.valueOf(resources.get(0).get("subject")));
+            record.put("knowledgeNode", null);
+            return record;
+        }
+
+        String subject = requiredText(body.get("subject"), "subject", 60);
+        String knowledgeNode = requiredText(body.get("knowledgeNode"), "knowledgeNode", 120);
+        Integer subjectCount = jdbcTemplate.queryForObject(
+                "select (select count(*) from subject_categories where name=?) "
+                        + "+ (select count(*) from directions where name=? and status=1)",
+                Integer.class, subject, subject);
+        if (subjectCount == null || subjectCount == 0) {
+            throw new BusinessException(404, "Learning subject does not exist.");
+        }
+        record.put("resourceId", null);
+        record.put("recordKey", "node:" + subject + ":" + knowledgeNode);
+        record.put("subject", subject);
+        record.put("knowledgeNode", knowledgeNode);
+        return record;
+    }
+
+    private int progress(Object value) {
+        if (value == null || text(value).isEmpty()) {
+            return 0;
+        }
+        try {
+            int progress = new BigDecimal(text(value)).intValueExact();
+            if (progress < 0 || progress > 100) {
+                throw new BusinessException(400, "progress must be between 0 and 100.");
+            }
+            return progress;
+        } catch (NumberFormatException | ArithmeticException exception) {
+            throw new BusinessException(400, "progress must be an integer between 0 and 100.");
+        }
+    }
+
+    private long positiveLong(Object value, String fieldName) {
+        try {
+            long id = new BigDecimal(text(value)).longValueExact();
+            if (id <= 0) {
+                throw new BusinessException(400, fieldName + " must be a positive integer.");
+            }
+            return id;
+        } catch (NumberFormatException | ArithmeticException exception) {
+            throw new BusinessException(400, fieldName + " must be a positive integer.");
+        }
+    }
+
+    private String requiredText(Object value, String fieldName, int maximumLength) {
+        String result = text(value);
+        if (result.isEmpty() || result.length() > maximumLength) {
+            throw new BusinessException(400,
+                    fieldName + " is required and must not exceed " + maximumLength + " characters.");
+        }
+        return result;
+    }
+
+    private String resourceType(Object value) {
+        String type = textOrDefault(value, "material");
+        if (!("video".equals(type) || "material".equals(type))) {
+            throw new BusinessException(400, "type must be either video or material.");
+        }
+        return type;
+    }
+
+    private void cleanupFailedUpload(String fileUrl, RuntimeException originalException) {
+        try {
+            fileStorageService.deleteStoredFile(fileUrl);
+        } catch (RuntimeException | IOException cleanupException) {
+            originalException.addSuppressed(cleanupException);
+        }
     }
 
     private boolean hasText(String value) {
