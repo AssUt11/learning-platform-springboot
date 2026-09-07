@@ -1,7 +1,7 @@
 package com.learning.platform.controller;
 
+import com.learning.platform.ai.application.LearningAgentAiService;
 import com.learning.platform.exception.BusinessException;
-import com.learning.platform.pattern.AgentStrategyFactory;
 import com.learning.platform.pattern.RecommendationContext;
 import com.learning.platform.pattern.WordLearningAnalysisReportTemplate;
 import com.learning.platform.service.CurrentUserService;
@@ -33,7 +33,7 @@ import java.util.Map;
 public class AgentController {
     private final JdbcTemplate jdbcTemplate;
     private final CurrentUserService currentUserService;
-    private final AgentStrategyFactory strategyFactory;
+    private final LearningAgentAiService agentAiService;
     private final WordLearningAnalysisReportTemplate reportTemplate;
 
     @Value("${app.report-dir}")
@@ -41,11 +41,11 @@ public class AgentController {
 
     public AgentController(JdbcTemplate jdbcTemplate,
                            CurrentUserService currentUserService,
-                           AgentStrategyFactory strategyFactory,
+                           LearningAgentAiService agentAiService,
                            WordLearningAnalysisReportTemplate reportTemplate) {
         this.jdbcTemplate = jdbcTemplate;
         this.currentUserService = currentUserService;
-        this.strategyFactory = strategyFactory;
+        this.agentAiService = agentAiService;
         this.reportTemplate = reportTemplate;
     }
 
@@ -68,11 +68,12 @@ public class AgentController {
     public Map<String, Object> analysis(@RequestHeader(value = "Authorization", required = false) String authorization) throws IOException {
         Map<String, Object> user = currentUserService.requireLearner(authorization);
         RecommendationContext context = buildContext(user);
-        File file = reportTemplate.generate(user, context, new File(reportDir));
+        String output = agentAiService.generate("analysis", context);
+        File file = reportTemplate.generateWithAiAnalysis(user, context, output, new File(reportDir));
         String storedUrl = "/reports/" + file.getName();
         long reportId;
         try {
-            reportId = insertAnalysisLog(user.get("id"), "Learning analysis Word report", storedUrl);
+            reportId = insertAnalysisLog(user.get("id"), output, storedUrl);
         } catch (RuntimeException exception) {
             try {
                 Files.deleteIfExists(file.toPath());
@@ -82,9 +83,11 @@ public class AgentController {
             throw exception;
         }
         String downloadUrl = reportDownloadUrl(reportId);
-        Map<String, Object> result = result("Learning analysis agent generated a Word report.");
+        Map<String, Object> result = result(output);
         result.put("downloadUrl", downloadUrl);
         result.put("reportId", reportId);
+        result.put("provider", agentAiService.providerCode());
+        result.put("model", agentAiService.modelCode());
         return result;
     }
 
@@ -197,10 +200,13 @@ public class AgentController {
     private Map<String, Object> runAgent(String type, String authorization) {
         Map<String, Object> user = currentUserService.requireLearner(authorization);
         RecommendationContext context = buildContext(user);
-        String output = strategyFactory.getStrategy(type).execute(context);
+        String output = agentAiService.generate(type, context);
         jdbcTemplate.update("insert into agent_logs(student_id,agent_type,output_result) values(?,?,?)",
                 user.get("id"), type, output);
-        return result(output);
+        Map<String, Object> result = result(output);
+        result.put("provider", agentAiService.providerCode());
+        result.put("model", agentAiService.modelCode());
+        return result;
     }
 
     private RecommendationContext buildContext(Map<String, Object> user) {

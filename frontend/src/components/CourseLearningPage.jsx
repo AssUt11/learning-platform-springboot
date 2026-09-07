@@ -19,6 +19,7 @@ import {
   saveLessonProgress
 } from "../api/learning";
 import CourseVideo from "./CourseVideo";
+import AiTutorPanel from "./AiTutorPanel";
 
 const EMPTY_PROGRESS = {
   totalLessons: 0,
@@ -347,6 +348,13 @@ export default function CourseLearningPage({ courseId, lessonId, setPage }) {
               </article>
             )}
           </div>
+
+          <AiTutorPanel
+            courseId={courseId}
+            lessonId={activeLesson?.id}
+            courseTitle={course.title}
+            lessonTitle={activeLesson?.title}
+          />
 
           {notice && <p className="learn-notice" role="status">{notice}</p>}
           <footer className="learn-controls">

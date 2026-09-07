@@ -32,3 +32,20 @@ app:
     acquisition-timeout-ms: ${NEO4J_ACQUISITION_TIMEOUT_MS:2000}
     retry-timeout-ms: ${NEO4J_RETRY_TIMEOUT_MS:800}
     failure-cooldown-ms: ${NEO4J_FAILURE_COOLDOWN_MS:10000}
+  ai:
+    enabled: ${AI_TUTOR_ENABLED:false}
+    max-concurrent: ${AI_MAX_CONCURRENT:1}
+    max-queue: ${AI_MAX_QUEUE:5}
+    message-max-chars: ${AI_MESSAGE_MAX_CHARS:1000}
+    context-max-chars: ${AI_CONTEXT_MAX_CHARS:3500}
+    rate-limit-per-minute: ${AI_RATE_LIMIT_PER_MINUTE:10}
+    stream-timeout-ms: ${AI_STREAM_TIMEOUT_MS:150000}
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://127.0.0.1:11434}
+      model: ${OLLAMA_MODEL:qwen3:8b-q4_K_M}
+      connect-timeout-ms: ${OLLAMA_CONNECT_TIMEOUT_MS:3000}
+      response-timeout-ms: ${OLLAMA_RESPONSE_TIMEOUT_MS:120000}
+      keep-alive: ${OLLAMA_KEEP_ALIVE:15m}
+      think: ${OLLAMA_THINK:false}
+      num-ctx: ${OLLAMA_NUM_CTX:4096}
+      num-predict: ${OLLAMA_NUM_PREDICT:600}

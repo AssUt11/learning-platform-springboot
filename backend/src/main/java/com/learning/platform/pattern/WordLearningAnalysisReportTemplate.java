@@ -13,6 +13,14 @@ import java.util.Map;
 
 @Service
 public class WordLearningAnalysisReportTemplate extends AbstractReportTemplate {
+    public File generateWithAiAnalysis(Map<String, Object> user, RecommendationContext context,
+                                       String aiAnalysis, File reportDir) throws IOException {
+        ensureDirectory(reportDir);
+        File target = createTargetFile(user, reportDir);
+        writeAiReport(user, context, aiAnalysis, target);
+        return target;
+    }
+
     @Override
     protected void writeReport(Map<String, Object> user, RecommendationContext context, File target) throws IOException {
         try (XWPFDocument doc = new XWPFDocument(); FileOutputStream out = new FileOutputStream(target)) {
@@ -30,6 +38,28 @@ public class WordLearningAnalysisReportTemplate extends AbstractReportTemplate {
                     + resourceSummary(context), false, 12);
             doc.write(out);
         }
+    }
+
+    private void writeAiReport(Map<String, Object> user, RecommendationContext context,
+                               String aiAnalysis, File target) throws IOException {
+        try (XWPFDocument doc = new XWPFDocument(); FileOutputStream out = new FileOutputStream(target)) {
+            addParagraph(doc, "知度课堂 AI 学习分析报告", true, 18);
+            addParagraph(doc, "学生：" + user.get("name") + "    学习方向：" + context.getSubject(), false, 11);
+            addParagraph(doc, "学习记录：" + context.getRecordCount() + " 条    近 7 天活动："
+                    + context.getRecentRecordCount() + " 条    平均进度：" + context.getAverageProgress() + "%", false, 11);
+            addParagraph(doc, "AI 个性化分析", true, 14);
+            String[] paragraphs = (aiAnalysis == null ? "" : aiAnalysis).replace("\r", "").split("\n");
+            for (String paragraph : paragraphs) {
+                String text = paragraph.trim();
+                if (!text.isEmpty()) addParagraph(doc, text, isHeading(text), 12);
+            }
+            doc.write(out);
+        }
+    }
+
+    private boolean isHeading(String text) {
+        return text.length() <= 30 && (text.matches("^[一二三四五六七八九十]+[、.．].*")
+                || text.matches("^\\d+[、.．].*") || text.endsWith("："));
     }
 
     private String weakNodeSummary(RecommendationContext context) {
@@ -65,6 +95,6 @@ public class WordLearningAnalysisReportTemplate extends AbstractReportTemplate {
         run.setText(text);
         run.setBold(bold);
         run.setFontSize(size);
-        run.setFontFamily("Arial");
+        run.setFontFamily("Microsoft YaHei");
     }
 }

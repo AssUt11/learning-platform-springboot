@@ -2361,10 +2361,18 @@ function AgentsPage({ preferences }) {
     setBusyAgents((prev) => ({ ...prev, [id]: true }));
     setOutputs((prev) => ({ ...prev, [id]: null }));
     try {
-      const data = await api(`/agents/${id}`, { method: "POST", body: JSON.stringify({ preferences }) });
+      const data = await api(`/agents/${id}`, {
+        method: "POST",
+        body: JSON.stringify({ preferences }),
+        timeout: 150000
+      });
       setOutputs((prev) => ({
         ...prev,
-        [id]: { text: data?.result || (data?.downloadUrl ? "学习分析报告已生成" : "分析已完成"), error: false }
+        [id]: {
+          text: data?.result || (data?.downloadUrl ? "学习分析报告已生成" : "分析已完成"),
+          error: false,
+          model: data?.model || ""
+        }
       }));
       if (id === "analysis") await loadReports();
     } catch (error) {
@@ -2440,6 +2448,9 @@ function AgentsPage({ preferences }) {
               {outputs[agent.id] && (
                 <div className={`agent-output${outputs[agent.id].error ? " error" : ""}`} role={outputs[agent.id].error ? "alert" : undefined}>
                   {outputs[agent.id].text}
+                  {!outputs[agent.id].error && outputs[agent.id].model && (
+                    <small>由 {outputs[agent.id].model} 生成</small>
+                  )}
                 </div>
               )}
             </article>
