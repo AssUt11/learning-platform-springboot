@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
+import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -58,6 +59,21 @@ class OllamaProviderTest {
         assertEquals(1, usage.getLoadDurationMs());
         assertEquals(4, usage.getTotalDurationMs());
         assertEquals(1D, usage.getTokensPerSecond());
+    }
+
+    @Test
+    void supportsNonStreamingToolTurns() throws Exception {
+        startServer("{\"done\":true,\"message\":{\"role\":\"assistant\",\"content\":\"\","
+                + "\"tool_calls\":[{\"function\":{\"name\":\"get_learning_profile\",\"arguments\":{}}}]}}");
+        OllamaProvider provider = provider();
+        java.util.List<java.util.Map<String, Object>> messages = new ArrayList<java.util.Map<String, Object>>();
+        messages.add(new java.util.LinkedHashMap<String, Object>(java.util.Map.of("role", "user", "content", "分析")));
+
+        com.fasterxml.jackson.databind.JsonNode result = provider.chatTurn(
+                messages, Collections.singletonList(Collections.emptyMap()), false, new AiCancellation());
+
+        assertEquals("get_learning_profile",
+                result.path("message").path("tool_calls").get(0).path("function").path("name").asText());
     }
 
     private void startServer(String response) throws IOException {

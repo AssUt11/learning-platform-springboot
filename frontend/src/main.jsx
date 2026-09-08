@@ -2371,7 +2371,10 @@ function AgentsPage({ preferences }) {
         [id]: {
           text: data?.result || (data?.downloadUrl ? "学习分析报告已生成" : "分析已完成"),
           error: false,
-          model: data?.model || ""
+          model: data?.model || "",
+          tools: Array.isArray(data?.toolsUsed) ? data.toolsUsed : [],
+          sources: Array.isArray(data?.sources) ? data.sources : [],
+          graphUsed: Boolean(data?.graphUsed)
         }
       }));
       if (id === "analysis") await loadReports();
@@ -2449,7 +2452,13 @@ function AgentsPage({ preferences }) {
                 <div className={`agent-output${outputs[agent.id].error ? " error" : ""}`} role={outputs[agent.id].error ? "alert" : undefined}>
                   {outputs[agent.id].text}
                   {!outputs[agent.id].error && outputs[agent.id].model && (
-                    <small>由 {outputs[agent.id].model} 生成</small>
+                    <small>由 {outputs[agent.id].model} 生成 · 调用 {outputs[agent.id].tools.length} 个工具</small>
+                  )}
+                  {!outputs[agent.id].error && outputs[agent.id].tools.length > 0 && (
+                    <div className="agent-evidence">
+                      <span>工具：{outputs[agent.id].tools.map(agentToolLabel).join("、")}</span>
+                      <span>依据：{outputs[agent.id].sources.length} 项{outputs[agent.id].graphUsed ? "（含知识图谱）" : ""}</span>
+                    </div>
                   )}
                 </div>
               )}
@@ -2494,6 +2503,16 @@ function AgentsPage({ preferences }) {
       </section>
     </main>
   );
+}
+
+function agentToolLabel(tool) {
+  const labels = {
+    get_learning_profile: "学习概况",
+    get_weak_knowledge: "薄弱知识点",
+    get_learning_resources: "课程资源",
+    get_graph_prerequisites: "图谱先修关系"
+  };
+  return labels[tool] || tool;
 }
 
 function MessagesPage({ user, setPage }) {

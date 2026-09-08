@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -124,6 +125,54 @@ public class Neo4jLearningContextService {
         return result;
     }
 
+    public PrerequisiteContext findPrerequisites(String requestedTopic) {
+        String topic = safe(requestedTopic);
+        if (!enabled) return PrerequisiteContext.unavailable(topic, "NEO4J_DISABLED");
+        if (System.currentTimeMillis() < retryAfterEpochMs) {
+            return PrerequisiteContext.unavailable(topic, "NEO4J_COOLDOWN");
+        }
+        try {
+            try (Session session = driver().session()) {
+                ensureSchema(session);
+                List<Map<String, Object>> targets = session.executeRead(transaction -> transaction.run(new Query(""
+                                + "MATCH (target:KnowledgeNode) "
+                                + "WHERE toLower(coalesce(target.title,target.name,'')) = toLower($topic) "
+                                + "   OR toLower(coalesce(target.title,target.name,'')) CONTAINS toLower($topic) "
+                                + "RETURN target.key AS nodeKey, coalesce(target.title,target.name,'') AS title "
+                                + "ORDER BY CASE WHEN toLower(coalesce(target.title,target.name,'')) = toLower($topic) THEN 0 ELSE 1 END "
+                                + "LIMIT 1", Values.parameters("topic", topic)))
+                        .list(record -> Map.of("nodeKey", record.get("nodeKey").asString(""),
+                                "title", record.get("title").asString(""))));
+                if (targets.isEmpty() || String.valueOf(targets.get(0).get("nodeKey")).isEmpty()) {
+                    retryAfterEpochMs = 0L;
+                    return new PrerequisiteContext(true, false, topic, Collections.emptyList(), "TOPIC_NOT_FOUND");
+                }
+                String nodeKey = String.valueOf(targets.get(0).get("nodeKey"));
+                String resolvedTitle = String.valueOf(targets.get(0).get("title"));
+                List<Map<String, Object>> prerequisites = session.executeRead(transaction -> transaction.run(new Query(""
+                                + "CALL { "
+                                + "  MATCH p=(pre:KnowledgeNode)-[:PREREQUISITE_OF*1..4]->(target:KnowledgeNode {key:$nodeKey}) "
+                                + "  RETURN pre, length(p) AS distance "
+                                + "  UNION "
+                                + "  MATCH p=(target:KnowledgeNode {key:$nodeKey})-[:REQUIRES*1..4]->(pre:KnowledgeNode) "
+                                + "  RETURN pre, length(p) AS distance "
+                                + "} "
+                                + "WITH pre, min(distance) AS distance "
+                                + "RETURN coalesce(pre.title,pre.name,'') AS title, distance "
+                                + "ORDER BY distance DESC, title LIMIT 20", Values.parameters("nodeKey", nodeKey)))
+                        .list(record -> Map.of("title", record.get("title").asString(""),
+                                "distance", record.get("distance").asInt(0))));
+                retryAfterEpochMs = 0L;
+                return new PrerequisiteContext(true, true, resolvedTitle, prerequisites,
+                        prerequisites.isEmpty() ? "NO_PREREQUISITE_RELATIONSHIPS" : null);
+            }
+        } catch (RuntimeException exception) {
+            markUnavailable();
+            LOGGER.warn("Neo4j prerequisite lookup is unavailable: {}", exception.getClass().getSimpleName());
+            return PrerequisiteContext.unavailable(topic, "NEO4J_UNAVAILABLE");
+        }
+    }
+
     private Map<String, Object> parameters(long internalCourseId, long publicCourseId, long lessonId,
                                            String courseTitle, String lessonTitle, String subject) {
         return Values.parameters(
@@ -199,6 +248,33 @@ public class Neo4jLearningContextService {
 
         public boolean isAvailable() { return available; }
         public List<Map<String, Object>> getNodes() { return nodes; }
+        public String getReason() { return reason; }
+    }
+
+    public static class PrerequisiteContext {
+        private final boolean available;
+        private final boolean topicFound;
+        private final String topic;
+        private final List<Map<String, Object>> prerequisites;
+        private final String reason;
+
+        public PrerequisiteContext(boolean available, boolean topicFound, String topic,
+                                   List<Map<String, Object>> prerequisites, String reason) {
+            this.available = available;
+            this.topicFound = topicFound;
+            this.topic = topic;
+            this.prerequisites = prerequisites == null ? Collections.emptyList() : prerequisites;
+            this.reason = reason;
+        }
+
+        public static PrerequisiteContext unavailable(String topic, String reason) {
+            return new PrerequisiteContext(false, false, topic, Collections.emptyList(), reason);
+        }
+
+        public boolean isAvailable() { return available; }
+        public boolean isTopicFound() { return topicFound; }
+        public String getTopic() { return topic; }
+        public List<Map<String, Object>> getPrerequisites() { return prerequisites; }
         public String getReason() { return reason; }
     }
 }

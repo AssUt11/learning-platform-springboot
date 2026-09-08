@@ -1,9 +1,15 @@
 package com.learning.platform.ai.domain;
 
 import java.util.Map;
+import java.util.List;
+import com.fasterxml.jackson.databind.JsonNode;
 import java.util.function.Consumer;
 
 public interface AiModelProvider {
+    default JsonNode chatTurn(List<Map<String, Object>> messages, List<Map<String, Object>> tools,
+                              boolean jsonOutput, AiCancellation cancellation) throws Exception {
+        throw new UnsupportedOperationException("Provider does not support tool calling");
+    }
     String providerCode();
     String modelCode();
     Map<String, Object> health();

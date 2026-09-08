@@ -1,10 +1,13 @@
 package com.learning.platform.controller;
 
 import com.learning.platform.ai.application.LearningAgentAiService;
+import com.learning.platform.ai.application.AiUserRateLimiter;
+import com.learning.platform.ai.domain.LearningAgentResult;
 import com.learning.platform.exception.BusinessException;
 import com.learning.platform.pattern.RecommendationContext;
 import com.learning.platform.pattern.WordLearningAnalysisReportTemplate;
 import com.learning.platform.service.CurrentUserService;
+import com.learning.platform.service.CourseContentValidationService;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,6 +30,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/agents")
@@ -35,6 +39,8 @@ public class AgentController {
     private final CurrentUserService currentUserService;
     private final LearningAgentAiService agentAiService;
     private final WordLearningAnalysisReportTemplate reportTemplate;
+    private final CourseContentValidationService contentValidationService;
+    private final AiUserRateLimiter rateLimiter;
 
     @Value("${app.report-dir}")
     private String reportDir;
@@ -42,11 +48,15 @@ public class AgentController {
     public AgentController(JdbcTemplate jdbcTemplate,
                            CurrentUserService currentUserService,
                            LearningAgentAiService agentAiService,
-                           WordLearningAnalysisReportTemplate reportTemplate) {
+                           WordLearningAnalysisReportTemplate reportTemplate,
+                           CourseContentValidationService contentValidationService,
+                           AiUserRateLimiter rateLimiter) {
         this.jdbcTemplate = jdbcTemplate;
         this.currentUserService = currentUserService;
         this.agentAiService = agentAiService;
         this.reportTemplate = reportTemplate;
+        this.contentValidationService = contentValidationService;
+        this.rateLimiter = rateLimiter;
     }
 
     @PostMapping("/guide")
@@ -67,28 +77,37 @@ public class AgentController {
     @PostMapping("/analysis")
     public Map<String, Object> analysis(@RequestHeader(value = "Authorization", required = false) String authorization) throws IOException {
         Map<String, Object> user = currentUserService.requireLearner(authorization);
-        RecommendationContext context = buildContext(user);
-        String output = agentAiService.generate("analysis", context);
-        File file = reportTemplate.generateWithAiAnalysis(user, context, output, new File(reportDir));
-        String storedUrl = "/reports/" + file.getName();
-        long reportId;
+        long userId = ((Number) user.get("id")).longValue();
+        requireRateLimit(userId);
+        String requestId = UUID.randomUUID().toString();
+        long startedAt = System.nanoTime();
+        long reportId = insertAgentStart(userId, "analysis", requestId);
+        File file = null;
         try {
-            reportId = insertAnalysisLog(user.get("id"), output, storedUrl);
-        } catch (RuntimeException exception) {
-            try {
-                Files.deleteIfExists(file.toPath());
-            } catch (IOException cleanupException) {
-                exception.addSuppressed(cleanupException);
+            RecommendationContext context = buildContext(user);
+            LearningAgentResult agentResult = agentAiService.execute("analysis", context, requestId);
+            String output = agentResult.getContent();
+            file = reportTemplate.generateWithAiAnalysis(user, context, output, new File(reportDir));
+            String storedUrl = "/reports/" + file.getName();
+            completeAgentLog(reportId, agentResult, storedUrl, elapsedMs(startedAt));
+            Map<String, Object> result = result(output);
+            result.put("downloadUrl", reportDownloadUrl(reportId));
+            result.put("reportId", reportId);
+            result.put("provider", agentAiService.providerCode());
+            result.put("model", agentAiService.modelCode());
+            addAgentMetadata(result, agentResult);
+            return result;
+        } catch (IOException | RuntimeException exception) {
+            if (file != null) {
+                try {
+                    Files.deleteIfExists(file.toPath());
+                } catch (IOException cleanupException) {
+                    exception.addSuppressed(cleanupException);
+                }
             }
+            failAgentLog(reportId, requestId, exception, elapsedMs(startedAt));
             throw exception;
         }
-        String downloadUrl = reportDownloadUrl(reportId);
-        Map<String, Object> result = result(output);
-        result.put("downloadUrl", downloadUrl);
-        result.put("reportId", reportId);
-        result.put("provider", agentAiService.providerCode());
-        result.put("model", agentAiService.modelCode());
-        return result;
     }
 
     @GetMapping("/reports")
@@ -96,7 +115,7 @@ public class AgentController {
         Map<String, Object> user = currentUserService.requireLearner(authorization);
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
                 "select id,output_result outputResult,created_at createdAt "
-                        + "from agent_logs where student_id=? and agent_type='analysis' and report_url is not null "
+                        + "from agent_logs where student_id=? and agent_type='analysis' and status='completed' and report_url is not null "
                         + "order by created_at desc limit 20",
                 user.get("id"));
         for (Map<String, Object> row : rows) {
@@ -158,16 +177,20 @@ public class AgentController {
         return result;
     }
 
-    private long insertAnalysisLog(Object studentId, String outputResult, String storedUrl) {
+    private long insertAgentStart(long studentId, String type, String requestId) {
         KeyHolder keyHolder = new GeneratedKeyHolder();
         jdbcTemplate.update(connection -> {
             java.sql.PreparedStatement statement = connection.prepareStatement(
-                    "insert into agent_logs(student_id,agent_type,output_result,report_url) values(?,?,?,?)",
+                    "insert into agent_logs(student_id,agent_type,request_id,provider_code,model_code,prompt_version,status,input_summary) "
+                            + "values(?,?,?,?,?,?,'running',?)",
                     Statement.RETURN_GENERATED_KEYS);
-            statement.setObject(1, studentId);
-            statement.setString(2, "analysis");
-            statement.setString(3, outputResult);
-            statement.setString(4, storedUrl);
+            statement.setLong(1, studentId);
+            statement.setString(2, type);
+            statement.setString(3, requestId);
+            statement.setString(4, agentAiService.providerCode());
+            statement.setString(5, agentAiService.modelCode());
+            statement.setString(6, LearningAgentAiService.PROMPT_VERSION);
+            statement.setString(7, "requestId=" + requestId + "; promptVersion=" + LearningAgentAiService.PROMPT_VERSION);
             return statement;
         }, keyHolder);
         Number key = keyHolder.getKey();
@@ -199,14 +222,59 @@ public class AgentController {
 
     private Map<String, Object> runAgent(String type, String authorization) {
         Map<String, Object> user = currentUserService.requireLearner(authorization);
-        RecommendationContext context = buildContext(user);
-        String output = agentAiService.generate(type, context);
-        jdbcTemplate.update("insert into agent_logs(student_id,agent_type,output_result) values(?,?,?)",
-                user.get("id"), type, output);
-        Map<String, Object> result = result(output);
-        result.put("provider", agentAiService.providerCode());
-        result.put("model", agentAiService.modelCode());
-        return result;
+        long userId = ((Number) user.get("id")).longValue();
+        requireRateLimit(userId);
+        String requestId = UUID.randomUUID().toString();
+        long startedAt = System.nanoTime();
+        long logId = insertAgentStart(userId, type, requestId);
+        try {
+            RecommendationContext context = buildContext(user);
+            LearningAgentResult agentResult = agentAiService.execute(type, context, requestId);
+            completeAgentLog(logId, agentResult, null, elapsedMs(startedAt));
+            Map<String, Object> result = result(agentResult.getContent());
+            result.put("provider", agentAiService.providerCode());
+            result.put("model", agentAiService.modelCode());
+            addAgentMetadata(result, agentResult);
+            return result;
+        } catch (RuntimeException exception) {
+            failAgentLog(logId, requestId, exception, elapsedMs(startedAt));
+            throw exception;
+        }
+    }
+
+    private void completeAgentLog(long logId, LearningAgentResult result, String reportUrl, long durationMs) {
+        int updated = jdbcTemplate.update("update agent_logs set output_result=?,report_url=?,input_summary=?,tools_used=?,sources_used=?,"
+                        + "graph_used=?,status='completed',duration_ms=?,error_code=null where id=? and request_id=?",
+                result.getContent(), reportUrl, auditSummary(result), String.join(",", result.getToolsUsed()),
+                String.join(",", result.getSources()), result.isGraphUsed() ? 1 : 0, durationMs,
+                logId, result.getRequestId());
+        if (updated != 1) throw new BusinessException(500, "AI 执行记录更新失败。");
+    }
+
+    private void failAgentLog(long logId, String requestId, Exception exception, long durationMs) {
+        try {
+            jdbcTemplate.update("update agent_logs set status='failed',duration_ms=?,error_code=? where id=? and request_id=?",
+                    durationMs, errorCode(exception), logId, requestId);
+        } catch (RuntimeException auditException) {
+            exception.addSuppressed(auditException);
+        }
+    }
+
+    private void requireRateLimit(long userId) {
+        if (!rateLimiter.tryAcquire(userId)) {
+            throw new BusinessException(429, "AI 请求过于频繁，请稍后再试。");
+        }
+    }
+
+    private long elapsedMs(long startedAt) {
+        return Math.max(0L, (System.nanoTime() - startedAt) / 1_000_000L);
+    }
+
+    private String errorCode(Exception exception) {
+        if (exception instanceof BusinessException) return "HTTP_" + ((BusinessException) exception).getCode();
+        if (exception instanceof IOException) return "REPORT_IO";
+        String name = exception.getClass().getSimpleName().toUpperCase();
+        return name.length() <= 60 ? name : name.substring(0, 60);
     }
 
     private RecommendationContext buildContext(Map<String, Object> user) {
@@ -229,8 +297,10 @@ public class AgentController {
                         + "from learning_records where student_id=? order by created_at desc limit 5",
                 user.get("id"));
         List<Map<String, Object>> favoriteResources = jdbcTemplate.queryForList(
-                "select r.title,r.subject,r.type from resource_favorites f "
-                        + "join resources r on r.id=f.resource_id where f.student_id=? order by f.created_at desc limit 3",
+                "select r.id,r.title,r.subject,r.type,r.level from resource_favorites f "
+                        + "join resources r on r.id=f.resource_id where f.student_id=? "
+                        + "and r.status=1 and r.review_status='approved' and r.lifecycle_status='active' "
+                        + "order by f.created_at desc limit 3",
                 user.get("id"));
         List<Map<String, Object>> resources = recommendedResources(subject, weakNodes, favoriteResources);
         return new RecommendationContext.Builder()
@@ -251,7 +321,8 @@ public class AgentController {
                                                            List<Map<String, Object>> weakNodes,
                                                            List<Map<String, Object>> favoriteResources) {
         List<Object> params = new ArrayList<Object>();
-        StringBuilder sql = new StringBuilder("select title,subject,type,level from resources where subject=?");
+        StringBuilder sql = new StringBuilder("select id,title,subject,type,level from resources "
+                + "where subject=? and status=1 and review_status='approved' and lifecycle_status='active'");
         params.add(subject);
         if (weakNodes != null && !weakNodes.isEmpty()) {
             sql.append(" and (title like ? or description like ? or subject=?)");
@@ -260,15 +331,33 @@ public class AgentController {
             params.add(node);
             params.add(subject);
         }
-        sql.append(" order by created_at desc limit 3");
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql.toString(), params.toArray());
-        if (!rows.isEmpty()) {
-            return rows;
-        }
+        sql.append(" order by created_at desc limit 10");
+        List<Map<String, Object>> rows = validatedResources(
+                jdbcTemplate.queryForList(sql.toString(), params.toArray()));
+        if (!rows.isEmpty()) return rows;
         if (favoriteResources != null && !favoriteResources.isEmpty()) {
-            return favoriteResources;
+            rows = validatedResources(favoriteResources);
+            if (!rows.isEmpty()) return rows;
         }
-        return jdbcTemplate.queryForList("select title,subject,type,level from resources order by created_at desc limit 3");
+        return validatedResources(jdbcTemplate.queryForList("select id,title,subject,type,level from resources "
+                + "where status=1 and review_status='approved' and lifecycle_status='active' "
+                + "order by created_at desc limit 10"));
+    }
+
+    private List<Map<String, Object>> validatedResources(List<Map<String, Object>> candidates) {
+        List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
+        for (Map<String, Object> candidate : candidates) {
+            Object rawId = candidate.get("id");
+            if (!(rawId instanceof Number)) continue;
+            try {
+                if (!contentValidationService.validatePublic(((Number) rawId).longValue()).isContentComplete()) continue;
+                result.add(candidate);
+                if (result.size() == 3) break;
+            } catch (BusinessException ignored) {
+                // A resource that changes during selection is excluded from AI evidence.
+            }
+        }
+        return result;
     }
 
     private String firstPreference(Object studentId) {
@@ -281,5 +370,21 @@ public class AgentController {
         Map<String, Object> result = new HashMap<String, Object>();
         result.put("result", message);
         return result;
+    }
+
+    private void addAgentMetadata(Map<String, Object> response, LearningAgentResult agentResult) {
+        response.put("requestId", agentResult.getRequestId());
+        response.put("toolsUsed", agentResult.getToolsUsed());
+        response.put("sources", agentResult.getSources());
+        response.put("graphUsed", agentResult.isGraphUsed());
+        response.put("promptVersion", LearningAgentAiService.PROMPT_VERSION);
+    }
+
+    private String auditSummary(LearningAgentResult result) {
+        return "requestId=" + result.getRequestId()
+                + "; promptVersion=" + LearningAgentAiService.PROMPT_VERSION
+                + "; tools=" + String.join(",", result.getToolsUsed())
+                + "; sources=" + String.join(",", result.getSources())
+                + "; graphUsed=" + result.isGraphUsed();
     }
 }

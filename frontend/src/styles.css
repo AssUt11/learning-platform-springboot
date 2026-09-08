@@ -2740,6 +2740,17 @@ textarea:focus {
   font-size: 12px;
 }
 
+.agent-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(37, 99, 235, 0.18);
+  color: #475569;
+  font-size: 12px;
+}
+
 .analytics-grid,
 .learning-overview {
   gap: 16px;

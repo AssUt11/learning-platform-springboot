@@ -48,21 +48,23 @@ public class AiTutorApplicationService {
     private final AiLearningContextService contextService;
     private final AiConversationRepository repository;
     private final TutorPromptService promptService;
+    private final AiUserRateLimiter rateLimiter;
     private final ThreadPoolExecutor executor;
     private final ConcurrentMap<String, GenerationControl> requests = new ConcurrentHashMap<String, GenerationControl>();
     private final ConcurrentMap<Long, String> userRequests = new ConcurrentHashMap<Long, String>();
-    private final ConcurrentMap<Long, UserRateWindow> rateWindows = new ConcurrentHashMap<Long, UserRateWindow>();
 
     public AiTutorApplicationService(AiProperties properties,
                                      AiModelProvider provider,
                                      AiLearningContextService contextService,
                                      AiConversationRepository repository,
-                                     TutorPromptService promptService) {
+                                     TutorPromptService promptService,
+                                     AiUserRateLimiter rateLimiter) {
         this.properties = properties;
         this.provider = provider;
         this.contextService = contextService;
         this.repository = repository;
         this.promptService = promptService;
+        this.rateLimiter = rateLimiter;
         int concurrent = Math.max(1, properties.getMaxConcurrent());
         int queue = Math.max(1, properties.getMaxQueue());
         ThreadFactory factory = runnable -> {
@@ -82,7 +84,7 @@ public class AiTutorApplicationService {
         if (userRequests.putIfAbsent(userId, requestId) != null) {
             throw new BusinessException(429, "你已有一个回答正在生成，请先等待或停止它。");
         }
-        if (!allowRequest(userId)) {
+        if (!rateLimiter.tryAcquire(userId)) {
             userRequests.remove(userId, requestId);
             throw new BusinessException(429, "提问过于频繁，请稍后再试。");
         }
@@ -356,21 +358,6 @@ public class AiTutorApplicationService {
 
     private long number(Object value) { return ((Number) value).longValue(); }
 
-    private boolean allowRequest(long userId) {
-        int limit = Math.max(1, properties.getRateLimitPerMinute());
-        UserRateWindow window = rateWindows.computeIfAbsent(userId, ignored -> new UserRateWindow());
-        synchronized (window) {
-            long now = System.currentTimeMillis();
-            if (now - window.startedAt >= 60000L) {
-                window.startedAt = now;
-                window.count = 0;
-            }
-            if (window.count >= limit) return false;
-            window.count++;
-            return true;
-        }
-    }
-
     @PreDestroy
     public void close() {
         for (GenerationControl control : requests.values()) cancel(control.userId, control.requestId);
@@ -406,10 +393,5 @@ public class AiTutorApplicationService {
             this.prompt = prompt;
             this.emitter = emitter;
         }
-    }
-
-    private static class UserRateWindow {
-        private long startedAt = System.currentTimeMillis();
-        private int count;
     }
 }

@@ -356,9 +356,21 @@ public class SchemaInitializer {
                 + "input_summary text null,"
                 + "output_result text null,"
                 + "report_url varchar(255) null,"
+                + "request_id varchar(64) null,"
+                + "provider_code varchar(40) null,"
+                + "model_code varchar(120) null,"
+                + "prompt_version varchar(40) null,"
+                + "tools_used text null,"
+                + "sources_used text null,"
+                + "graph_used tinyint not null default 0,"
+                + "status enum('running','completed','failed') not null default 'completed',"
+                + "duration_ms bigint null,"
+                + "error_code varchar(60) null,"
+                + "updated_at timestamp not null default current_timestamp on update current_timestamp,"
                 + "created_at timestamp not null default current_timestamp,"
                 + "index idx_agent_student(student_id),"
                 + "index idx_agent_student_type_created(student_id,agent_type,created_at),"
+                + "unique key uk_agent_request(request_id),"
                 + "constraint fk_agent_student foreign key(student_id) references users(id) on delete cascade"
                 + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
 
@@ -390,6 +402,18 @@ public class SchemaInitializer {
         safeExecute("alter table learning_records add index idx_records_student_created(student_id,created_at)");
         safeExecute("alter table learning_records add index idx_records_resource_student(resource_id,student_id)");
         safeExecute("alter table agent_logs add index idx_agent_student_type_created(student_id,agent_type,created_at)");
+        safeExecute("alter table agent_logs add column request_id varchar(64) null after report_url");
+        safeExecute("alter table agent_logs add column provider_code varchar(40) null after request_id");
+        safeExecute("alter table agent_logs add column model_code varchar(120) null after provider_code");
+        safeExecute("alter table agent_logs add column prompt_version varchar(40) null after model_code");
+        safeExecute("alter table agent_logs add column tools_used text null after prompt_version");
+        safeExecute("alter table agent_logs add column sources_used text null after tools_used");
+        safeExecute("alter table agent_logs add column graph_used tinyint not null default 0 after sources_used");
+        safeExecute("alter table agent_logs add column status enum('running','completed','failed') not null default 'completed' after graph_used");
+        safeExecute("alter table agent_logs add column duration_ms bigint null after status");
+        safeExecute("alter table agent_logs add column error_code varchar(60) null after duration_ms");
+        safeExecute("alter table agent_logs add column updated_at timestamp not null default current_timestamp on update current_timestamp after error_code");
+        safeExecute("alter table agent_logs add unique key uk_agent_request(request_id)");
     }
 
     private void seedAdminAccount() {
