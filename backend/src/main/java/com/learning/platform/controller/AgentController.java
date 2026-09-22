@@ -8,6 +8,7 @@ import com.learning.platform.pattern.RecommendationContext;
 import com.learning.platform.pattern.WordLearningAnalysisReportTemplate;
 import com.learning.platform.service.CurrentUserService;
 import com.learning.platform.service.CourseContentValidationService;
+import com.learning.platform.service.StudentLearningPathService;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.beans.factory.annotation.Value;
@@ -41,6 +42,7 @@ public class AgentController {
     private final WordLearningAnalysisReportTemplate reportTemplate;
     private final CourseContentValidationService contentValidationService;
     private final AiUserRateLimiter rateLimiter;
+    private final StudentLearningPathService learningPaths;
 
     @Value("${app.report-dir}")
     private String reportDir;
@@ -50,13 +52,14 @@ public class AgentController {
                            LearningAgentAiService agentAiService,
                            WordLearningAnalysisReportTemplate reportTemplate,
                            CourseContentValidationService contentValidationService,
-                           AiUserRateLimiter rateLimiter) {
+                           AiUserRateLimiter rateLimiter, StudentLearningPathService learningPaths) {
         this.jdbcTemplate = jdbcTemplate;
         this.currentUserService = currentUserService;
         this.agentAiService = agentAiService;
         this.reportTemplate = reportTemplate;
         this.contentValidationService = contentValidationService;
         this.rateLimiter = rateLimiter;
+        this.learningPaths = learningPaths;
     }
 
     @PostMapping("/guide")
@@ -230,11 +233,13 @@ public class AgentController {
         try {
             RecommendationContext context = buildContext(user);
             LearningAgentResult agentResult = agentAiService.execute(type, context, requestId);
+            Map<String, Object> path = "path".equals(type) ? learningPaths.save(userId, agentResult) : null;
             completeAgentLog(logId, agentResult, null, elapsedMs(startedAt));
             Map<String, Object> result = result(agentResult.getContent());
             result.put("provider", agentAiService.providerCode());
             result.put("model", agentAiService.modelCode());
             addAgentMetadata(result, agentResult);
+            if (path != null) result.put("learningPath", path);
             return result;
         } catch (RuntimeException exception) {
             failAgentLog(logId, requestId, exception, elapsedMs(startedAt));

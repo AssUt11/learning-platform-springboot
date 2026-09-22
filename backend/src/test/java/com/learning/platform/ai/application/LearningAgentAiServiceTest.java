@@ -9,6 +9,8 @@ import com.learning.platform.pattern.RecommendationContext;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -59,14 +61,17 @@ class LearningAgentAiServiceTest {
                         mapper.readTree("{\"message\":{\"role\":\"assistant\",\"content\":\"\","
                                 + "\"tool_calls\":[{\"function\":{\"name\":\"get_graph_prerequisites\","
                                 + "\"arguments\":{\"topic\":\"Java\"}}}]}}"),
-                        mapper.readTree("{\"message\":{\"role\":\"assistant\",\"content\":\"图谱不可用，按学习记录给出暂行路径\"}}"));
+                        mapper.valueToTree(Map.of("message", Map.of("role", "assistant", "content", mapper.writeValueAsString(Map.of(
+                                "title", "Java学习路线", "summary", "图谱不可用，按学习记录给出暂行路径", "steps", List.of(Map.of(
+                                        "title", "Java基础", "goal", "理解变量", "completionCriteria", "完成练习"))))))));
         LearningAgentAiService service = new LearningAgentAiService(properties, provider, mapper, toolbox);
 
         LearningAgentResult result = service.execute("path", context());
 
         assertEquals("知识图谱当前不可用，或没有匹配到明确的先修关系；"
                 + "以下路径仅基于学习记录与已审核资源生成，尚未完成图谱校验。\n"
-                + "图谱不可用，按学习记录给出暂行路径", result.getContent());
+                + "图谱不可用，按学习记录给出暂行路径\n\n1. Java基础\n目标：理解变量\n完成标准：完成练习", result.getContent());
+        assertEquals(1, ((List<?>) result.getLearningPath().get("nodes")).size());
         assertEquals(Collections.singletonList("get_graph_prerequisites"), result.getToolsUsed());
     }
 

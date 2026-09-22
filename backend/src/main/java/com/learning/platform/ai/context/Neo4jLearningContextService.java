@@ -150,17 +150,23 @@ public class Neo4jLearningContextService {
                 String nodeKey = String.valueOf(targets.get(0).get("nodeKey"));
                 String resolvedTitle = String.valueOf(targets.get(0).get("title"));
                 List<Map<String, Object>> prerequisites = session.executeRead(transaction -> transaction.run(new Query(""
+                                + "MATCH (scope:KnowledgeNode {key:$nodeKey}) "
+                                + "MATCH (scope)-[:CONTAINS*0..2]->(goal:KnowledgeNode) "
                                 + "CALL { "
-                                + "  MATCH p=(pre:KnowledgeNode)-[:PREREQUISITE_OF*1..4]->(target:KnowledgeNode {key:$nodeKey}) "
+                                + "  WITH goal "
+                                + "  MATCH p=(pre:KnowledgeNode)-[:PREREQUISITE_OF*1..4]->(goal) "
                                 + "  RETURN pre, length(p) AS distance "
                                 + "  UNION "
-                                + "  MATCH p=(target:KnowledgeNode {key:$nodeKey})-[:REQUIRES*1..4]->(pre:KnowledgeNode) "
+                                + "  WITH goal "
+                                + "  MATCH p=(goal)-[:REQUIRES*1..4]->(pre:KnowledgeNode) "
                                 + "  RETURN pre, length(p) AS distance "
                                 + "} "
-                                + "WITH pre, min(distance) AS distance "
-                                + "RETURN coalesce(pre.title,pre.name,'') AS title, distance "
-                                + "ORDER BY distance DESC, title LIMIT 20", Values.parameters("nodeKey", nodeKey)))
+                                + "WITH pre, goal, min(distance) AS distance "
+                                + "RETURN coalesce(pre.title,pre.name,'') AS title, "
+                                + "       coalesce(goal.title,goal.name,'') AS target, distance "
+                                + "ORDER BY target, distance DESC, title LIMIT 20", Values.parameters("nodeKey", nodeKey)))
                         .list(record -> Map.of("title", record.get("title").asString(""),
+                                "target", record.get("target").asString(""),
                                 "distance", record.get("distance").asInt(0))));
                 retryAfterEpochMs = 0L;
                 return new PrerequisiteContext(true, true, resolvedTitle, prerequisites,
@@ -173,6 +179,63 @@ public class Neo4jLearningContextService {
         }
     }
 
+    public PrerequisiteSyncResult syncPrerequisites(List<Map<String, Object>> relations) {
+        if (!enabled) return PrerequisiteSyncResult.unavailable("NEO4J_DISABLED");
+        if (System.currentTimeMillis() < retryAfterEpochMs) {
+            return PrerequisiteSyncResult.unavailable("NEO4J_COOLDOWN");
+        }
+        List<Map<String, Object>> safeRelations = new ArrayList<Map<String, Object>>();
+        if (relations != null) {
+            for (Map<String, Object> relation : relations) {
+                Map<String, Object> row = new LinkedHashMap<String, Object>();
+                row.put("id", relation.get("id"));
+                row.put("subject", relation.get("subject"));
+                row.put("prerequisiteKey", relation.get("prerequisiteKey"));
+                row.put("prerequisiteTitle", relation.get("prerequisiteTitle"));
+                row.put("targetKey", relation.get("targetKey"));
+                row.put("targetTitle", relation.get("targetTitle"));
+                row.put("sourceReference", relation.get("sourceReference"));
+                row.put("prerequisiteParentKey", parentKey(String.valueOf(relation.get("prerequisiteKey"))));
+                row.put("targetParentKey", parentKey(String.valueOf(relation.get("targetKey"))));
+                safeRelations.add(row);
+            }
+        }
+        try {
+            try (Session session = driver().session()) {
+                ensureSchema(session);
+                session.executeWrite(transaction -> {
+                    transaction.run("MATCH ()-[r:PREREQUISITE_OF {source:'learning-platform'}]->() DELETE r").consume();
+                    transaction.run(new Query(""
+                                    + "UNWIND $relations AS row "
+                                    + "MERGE (pre:KnowledgeNode {key:row.prerequisiteKey}) "
+                                    + "SET pre.title=row.prerequisiteTitle, pre.name=row.prerequisiteTitle, "
+                                    + "    pre.subject=row.subject, pre.source='learning-platform' "
+                                    + "MERGE (preParent:KnowledgeNode {key:row.prerequisiteParentKey}) "
+                                    + "ON CREATE SET preParent.title=row.subject, preParent.name=row.subject, "
+                                    + "              preParent.subject=row.subject, preParent.source='learning-platform' "
+                                    + "MERGE (preParent)-[:CONTAINS]->(pre) "
+                                    + "MERGE (target:KnowledgeNode {key:row.targetKey}) "
+                                    + "SET target.title=row.targetTitle, target.name=row.targetTitle, "
+                                    + "    target.subject=row.subject, target.source='learning-platform' "
+                                    + "MERGE (targetParent:KnowledgeNode {key:row.targetParentKey}) "
+                                    + "ON CREATE SET targetParent.title=row.subject, targetParent.name=row.subject, "
+                                    + "              targetParent.subject=row.subject, targetParent.source='learning-platform' "
+                                    + "MERGE (targetParent)-[:CONTAINS]->(target) "
+                                    + "MERGE (pre)-[r:PREREQUISITE_OF {source:'learning-platform'}]->(target) "
+                                    + "SET r.sourceId=row.id, r.sourceReference=row.sourceReference, r.syncedAt=datetime()",
+                            Values.parameters("relations", safeRelations))).consume();
+                    return null;
+                });
+                retryAfterEpochMs = 0L;
+                return new PrerequisiteSyncResult(true, safeRelations.size(), null);
+            }
+        } catch (RuntimeException exception) {
+            markUnavailable();
+            LOGGER.warn("Neo4j prerequisite synchronization failed: {}", exception.getClass().getSimpleName());
+            return PrerequisiteSyncResult.unavailable("NEO4J_UNAVAILABLE");
+        }
+    }
+
     private Map<String, Object> parameters(long internalCourseId, long publicCourseId, long lessonId,
                                            String courseTitle, String lessonTitle, String subject) {
         return Values.parameters(
@@ -182,6 +245,47 @@ public class Neo4jLearningContextService {
                 "courseTitle", safe(courseTitle),
                 "lessonTitle", safe(lessonTitle),
                 "subject", safe(subject)).asMap();
+    }
+
+    /** Personal plan steps deliberately do not modify the shared KnowledgeNode graph. */
+    public boolean saveStudentPath(long userId, String pathId, String title, String snapshot,
+                                   List<Map<String, Object>> nodes) {
+        if (!enabled || System.currentTimeMillis() < retryAfterEpochMs) return false;
+        try (Session session = driver().session()) {
+            session.run("CREATE CONSTRAINT student_path_id IF NOT EXISTS FOR (p:StudentLearningPath) REQUIRE p.pathId IS UNIQUE").consume();
+            session.executeWrite(tx -> {
+                tx.run("MERGE (p:StudentLearningPath {pathId:$pathId}) "
+                        + "SET p.userId=$userId,p.title=$title,p.snapshotJson=$snapshot,p.updatedAt=datetime() "
+                        + "WITH p UNWIND $nodes AS row "
+                        + "MERGE (s:StudentLearningPathStep {pathId:$pathId,stepId:row.id}) "
+                        + "SET s.userId=$userId,s.title=row.title,s.stepOrder=row.order,s.goal=row.goal,"
+                        + "s.completionCriteria=row.completionCriteria,s.courseId=row.courseId "
+                        + "MERGE (p)-[:HAS_STEP]->(s)",
+                        Values.parameters("pathId", pathId, "userId", userId, "title", title, "snapshot", snapshot, "nodes", nodes)).consume();
+                tx.run("MATCH (p:StudentLearningPath {pathId:$pathId,userId:$userId})-[:HAS_STEP]->(a) "
+                        + "MATCH (p)-[:HAS_STEP]->(b) WHERE b.stepOrder=a.stepOrder+1 "
+                        + "MERGE (a)-[:NEXT_STEP]->(b)", Values.parameters("pathId", pathId, "userId", userId)).consume();
+                return null;
+            });
+            return true;
+        } catch (RuntimeException error) {
+            markUnavailable();
+            LOGGER.warn("Student learning path saved locally; Neo4j sync unavailable: {}", error.getClass().getSimpleName());
+            return false;
+        }
+    }
+
+    public String readStudentPath(long userId, String pathId) {
+        if (!enabled || System.currentTimeMillis() < retryAfterEpochMs) return null;
+        try (Session session = driver().session()) {
+            List<String> snapshots = session.executeRead(tx -> tx.run(
+                    "MATCH (p:StudentLearningPath {pathId:$pathId,userId:$userId}) RETURN p.snapshotJson AS snapshot",
+                    Values.parameters("pathId", pathId, "userId", userId)).list(row -> row.get("snapshot").asString()));
+            return snapshots.isEmpty() ? null : snapshots.get(0);
+        } catch (RuntimeException error) {
+            markUnavailable();
+            return null;
+        }
     }
 
     private synchronized Driver driver() {
@@ -219,6 +323,10 @@ public class Neo4jLearningContextService {
     }
 
     private String safe(String value) { return value == null ? "" : value.trim(); }
+    private String parentKey(String value) {
+        int separator = value == null ? -1 : value.lastIndexOf('/');
+        return separator > 0 ? value.substring(0, separator) : value;
+    }
     private long positive(long value, long fallback) { return value > 0L ? value : fallback; }
 
     private void ensureSchema(Session session) {
@@ -227,6 +335,7 @@ public class Neo4jLearningContextService {
             if (schemaReady) return;
             session.run("CREATE CONSTRAINT ai_course_mysql_id IF NOT EXISTS FOR (c:Course) REQUIRE c.mysqlId IS UNIQUE").consume();
             session.run("CREATE CONSTRAINT ai_lesson_mysql_id IF NOT EXISTS FOR (l:Lesson) REQUIRE l.mysqlId IS UNIQUE").consume();
+            session.run("CREATE CONSTRAINT ai_knowledge_node_key IF NOT EXISTS FOR (k:KnowledgeNode) REQUIRE k.key IS UNIQUE").consume();
             schemaReady = true;
         }
     }
@@ -275,6 +384,26 @@ public class Neo4jLearningContextService {
         public boolean isTopicFound() { return topicFound; }
         public String getTopic() { return topic; }
         public List<Map<String, Object>> getPrerequisites() { return prerequisites; }
+        public String getReason() { return reason; }
+    }
+
+    public static class PrerequisiteSyncResult {
+        private final boolean available;
+        private final int syncedCount;
+        private final String reason;
+
+        public PrerequisiteSyncResult(boolean available, int syncedCount, String reason) {
+            this.available = available;
+            this.syncedCount = syncedCount;
+            this.reason = reason;
+        }
+
+        public static PrerequisiteSyncResult unavailable(String reason) {
+            return new PrerequisiteSyncResult(false, 0, reason);
+        }
+
+        public boolean isAvailable() { return available; }
+        public int getSyncedCount() { return syncedCount; }
         public String getReason() { return reason; }
     }
 }

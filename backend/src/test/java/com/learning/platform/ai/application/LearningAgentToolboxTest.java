@@ -21,7 +21,7 @@ class LearningAgentToolboxTest {
 
     @Test
     void pathRequiresGraphEvidence() {
-        assertEquals(Collections.singletonList("get_graph_prerequisites"), toolbox.requiredTools("path"));
+        assertEquals(List.of("get_learning_profile", "get_learning_resources", "get_graph_prerequisites"), toolbox.requiredTools("path"));
         assertEquals(4, toolbox.definitions("path").size());
     }
 

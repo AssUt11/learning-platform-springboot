@@ -24,4 +24,6 @@ database/backups/*.sql
 
 # Local configuration
 *.env
+.env.*
+!.env.example
 *.local

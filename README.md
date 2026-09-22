@@ -8,23 +8,23 @@
 - `frontend/src/api`：分类、课程、图谱、学习和分析接口模块
 - `frontend/src/components`：导航、搜索、分类和课程卡片组件
 - `frontend/src/utils/request.js`：Axios 统一请求、Token 和错误处理
-- `database/navicat_mysql.sql`：完整 MySQL 初始化脚本
+- `database/navicat_mysql.sql`：基础 MySQL 初始化脚本；后端启动时补齐新增表
 - `database/catalog_phase1.sql`：第一阶段分类、方向增量脚本
 - `database/course_community.sql`：课程问答、笔记、评价、教师回复和审核治理增量脚本
-- `docs/学校服务器部署说明.md`：正式服务器部署、更新和回滚
-- `docs/运维手册.md`：日常检查、备份、故障与安全操作
-- `docs/最终验收记录.md`：最终版验证结果与学校确认项
-- `docs/备份恢复演练记录.md`：数据库与视频文件恢复验证证据
+- [个人学习路径图谱与启动排查](docs/个人学习路径图谱与启动排查-2026-09-20.md)：路径保存、图谱同步、启动排查与验证范围
+- [AI 伴学实施文档](docs/langchain4j/README.md)：LangChain4j 迁移方案和待执行的阶段任务；当前运行实现仍直接调用 Ollama
 
 ## 三端能力
 
-- 学生端：浏览与学习已审核课程，使用章节、问答、私人笔记、评价、课程知识图谱、学习进度和 AI 学伴。
+- 学生端：浏览与学习已审核课程，使用章节、问答、私人笔记、评价、课程知识图谱、学习进度和 AI 学伴；学习路径分析可保存个人路径并在智慧图谱中查看。
 - 教师端：上传视频或文字课程，查看投稿审核状态与管理员反馈，回复学生评价和问题，查看课程播放、完成率、收藏、薄弱知识点和学生预警。
 - 管理员端：审核教师投稿、控制课程上下架、治理评论与问答、查看运行健康状态、执行安全的数据修复并保留操作审计记录。
 
 课程卡片会进入独立的 `/course/{id}` 学习页；只有 `review_status=approved` 且已上架的课程会显示在学生端。
 
 ## 本地启动
+
+需要 Java 17、Maven 3.9、Node.js 18.19+（含 npm）和 MySQL 8。AI 与实时图谱另需 Ollama 和 Neo4j。克隆项目后先在 `frontend` 目录执行 `npm ci` 安装锁定版本的依赖。
 
 1. 创建空的 `learning_platform` 数据库；后端启动时会自动增量建表和补齐数据。
 2. 检查 `backend/src/main/resources/application.yml` 中的 MySQL 和 Neo4j 配置。
@@ -52,6 +52,19 @@ npm run dev
 - 后端：`http://localhost:8081`
 
 应用启动时 `SchemaInitializer` 会增量创建 `categories`、`directions` 表，并为现有课程资源补齐分类、方向、预计时长和学习人数字段，不会删除已有学习记录。
+
+后端默认监听 8081；出现 `Port 8081 was already in use` 时，先停止已有后端实例再启动。手动运行 Spring Boot 时需在终端或 IDEA 中设置环境变量，根目录 `.env` 不会被自动读取。
+
+## 构建与打包
+
+在项目根目录执行（已完成 `frontend` 的 `npm ci`）：
+
+```powershell
+mvn -f backend/pom.xml clean package
+java -jar backend/target/learning-platform-1.0.0.jar
+```
+
+Maven 会执行后端测试、构建前端并将页面嵌入 JAR，打包后可直接访问 `http://localhost:8081`。根目录 `mvnw.cmd` 是本机 `.tools` 目录的辅助启动脚本，不是标准 Maven Wrapper；其他电脑请使用已安装的 `mvn`。
 
 ## 第一阶段接口
 
@@ -102,6 +115,10 @@ GET /api/knowledge-graph?subject=人工智能&path=人工智能
 
 Neo4j 不可用时页面会显示备用分类图谱；连接恢复后刷新页面即可重新载入实时节点关系。
 
+个人路径流程：进入“AI 学伴” → “学习路径分析” → “查看我的路径图谱”。直接打开“智慧图谱”会显示当前学生最新保存的路径，也可切换到公共知识图谱。Neo4j 离线时路径保存在 MySQL，页面提供重试同步入口。
+
+生成路径前安装 Ollama 模型，并设置 `AI_TUTOR_ENABLED=true`、`OLLAMA_BASE_URL`、`OLLAMA_MODEL` 及正确的 `NEO4J_*` 环境变量后重启后端。默认模型为 `qwen3:8b-q4_K_M`。真实模型输出质量和真实 Neo4j 写入仍需在对应服务启用后验收，已有测试覆盖结构校验、离线保存和用户隔离。
+
 ## Docker Compose
 
 Windows 已安装 Docker Desktop 时，可在项目根目录执行：
@@ -119,10 +136,18 @@ docker compose up --build -d
 
 ## 自动化端到端测试
 
-后端、MySQL 和 Neo4j 启动后，在 `frontend` 目录执行：
+无需后端的页面回归测试，在 `frontend` 目录执行（需要 Microsoft Edge）：
+
+```powershell
+npx --no-install playwright test e2e/student-buttons.spec.js e2e/learning-path.spec.js e2e/teacher-edit.spec.js
+```
+
+真实接口测试需要独立测试数据库及连接该数据库的后端，通过 `E2E_BACKEND_URL` 指定后端地址。在 `frontend` 目录执行：
 
 ```powershell
 npm run test:e2e
 ```
 
-测试会用 Microsoft Edge 依次验证学生、教师、管理员流程。学生和教师测试账号使用 `e2e-` 前缀，并在每个用例结束后精确清理。正式测试环境请通过 `.env.example` 中的 `E2E_*` 变量提供测试凭据。
+测试会用 Microsoft Edge 依次验证学生、教师、管理员流程。学生和教师测试账号使用 `e2e-` 前缀，并在每个用例结束后精确清理。请在终端设置 `.env.example` 中的 `E2E_*` 变量，确保清理数据库与被测后端使用同一个独立数据库。真实学习流程要求数据库名以 `learning_platform_e2e_` 开头；路径联调用例另需 `E2E_PATH_FLOW=1` 和提供两步路径的专用模型测试服务，未配置时跳过。不要对业务数据库运行测试。
+
+仓库排除了依赖目录、构建输出、运行日志、上传文件、备份及本地环境配置；`backend/src/main/resources/static` 保留随源码交付的页面，供 IDEA 直接启动使用。

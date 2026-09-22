@@ -340,9 +340,16 @@ export default function CourseLearningPage({ courseId, lessonId, setPage }) {
             )}
             {playback.status === "article" && (
               <article className="learn-article">
-                <div className="learn-article-label"><FileText size={17} />图文课时</div>
-                <div className="learn-article-copy">{activeLesson?.contentText || course.content || "本课时内容正在整理，请先结合课程目标完成自主学习与笔记。"}</div>
-                <button disabled={lessonProgress?.completed || saving} onClick={completeArticle}>
+                <div className="learn-article-label"><FileText size={17} />{activeLesson?.lessonType === "document" ? "文档课时" : activeLesson?.lessonType === "exercise" ? "练习课时" : "图文课时"}</div>
+                {activeLesson?.lessonType === "document" ? (
+                  <div className="learn-article-copy">
+                    {activeLesson.playbackUrl
+                      ? <a className="resource-link" href={activeLesson.playbackUrl} target="_blank" rel="noreferrer">打开课程文档</a>
+                      : <p>本课时文档暂不可用，请等待教师上传后重新加载。</p>}
+                    {activeLesson.contentText && <p>{activeLesson.contentText}</p>}
+                  </div>
+                ) : <div className="learn-article-copy">{activeLesson?.contentText || course.content || "本课时内容正在整理，请先结合课程目标完成自主学习与笔记。"}</div>}
+                <button disabled={lessonProgress?.completed || saving || (activeLesson?.lessonType === "document" && !activeLesson.playbackUrl)} onClick={completeArticle}>
                   {lessonProgress?.completed ? <><CheckCircle2 size={17} />本课时已完成</> : <><Circle size={17} />完成本课</>}
                 </button>
               </article>

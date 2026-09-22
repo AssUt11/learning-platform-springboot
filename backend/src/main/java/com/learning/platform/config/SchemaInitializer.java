@@ -226,6 +226,28 @@ public class SchemaInitializer {
                 + "index idx_knowledge_subject(subject)"
                 + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
 
+        jdbcTemplate.execute("create table if not exists knowledge_prerequisites ("
+                + "id bigint primary key auto_increment,"
+                + "subject varchar(60) not null,"
+                + "prerequisite_key varchar(220) not null,"
+                + "prerequisite_title varchar(120) not null,"
+                + "target_key varchar(220) not null,"
+                + "target_title varchar(120) not null,"
+                + "source_reference varchar(500) not null,"
+                + "sync_status enum('pending','synced','failed') not null default 'pending',"
+                + "sync_error varchar(500) null,"
+                + "created_by bigint null,"
+                + "updated_by bigint null,"
+                + "created_at timestamp not null default current_timestamp,"
+                + "updated_at timestamp not null default current_timestamp on update current_timestamp,"
+                + "unique key uk_knowledge_prerequisite(subject,prerequisite_key,target_key),"
+                + "index idx_knowledge_prerequisite_target(subject,target_key),"
+                + "index idx_knowledge_prerequisite_sync(sync_status,updated_at),"
+                + "constraint fk_knowledge_prerequisite_creator foreign key(created_by) references users(id) on delete set null,"
+                + "constraint fk_knowledge_prerequisite_updater foreign key(updated_by) references users(id) on delete set null"
+                + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
+        seedKnowledgePrerequisites();
+
         jdbcTemplate.execute("create table if not exists learning_records ("
                 + "id bigint primary key auto_increment,"
                 + "student_id bigint not null,"
@@ -427,6 +449,23 @@ public class SchemaInitializer {
         }
         jdbcTemplate.update("insert into users(name,email,password_hash,role) values(?,?,?,'admin')",
                 "平台管理员", adminEmail, passwordEncoder.encode(adminPassword));
+    }
+
+    private void seedKnowledgePrerequisites() {
+        String subject = "Java";
+        String source = "知度课堂默认 Java 学习路径 v1";
+        Object[][] relations = new Object[][]{
+                {"software_engineering/java/java基础", "Java基础", "software_engineering/java/面向对象", "面向对象"},
+                {"software_engineering/java/面向对象", "面向对象", "software_engineering/java/spring", "Spring"},
+                {"software_engineering/java/spring", "Spring", "software_engineering/java/spring_mvc", "Spring MVC"},
+                {"software_engineering/java/spring_mvc", "Spring MVC", "software_engineering/java/spring_boot", "Spring Boot"}
+        };
+        for (Object[] relation : relations) {
+            jdbcTemplate.update("insert ignore into knowledge_prerequisites("
+                            + "subject,prerequisite_key,prerequisite_title,target_key,target_title,source_reference) "
+                            + "values(?,?,?,?,?,?)",
+                    subject, relation[0], relation[1], relation[2], relation[3], source);
+        }
     }
 
     private void safeExecute(String sql) {

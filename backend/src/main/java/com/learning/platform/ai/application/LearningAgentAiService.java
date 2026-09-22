@@ -23,7 +23,7 @@ import java.util.UUID;
 
 @Service
 public class LearningAgentAiService {
-    public static final String PROMPT_VERSION = "learning-agent-v2";
+    public static final String PROMPT_VERSION = "learning-agent-v3";
     private static final int MAX_ROUNDS = 4;
     private static final int MAX_TOOL_CALLS = 6;
     private static final String SYSTEM_PROMPT = "你是知度课堂的学习分析助教。只根据工具返回的学习数据进行分析，"
@@ -66,6 +66,7 @@ public class LearningAgentAiService {
         Set<String> toolsUsed = new LinkedHashSet<String>();
         Set<String> sources = new LinkedHashSet<String>();
         boolean graphUsed = false;
+        List<Map<String, Object>> graphEvidence = new ArrayList<>();
         int toolCallCount = 0;
         try {
             AiCancellation cancellation = new AiCancellation();
@@ -86,12 +87,18 @@ public class LearningAgentAiService {
                     if (!missing.isEmpty()) throw new IllegalStateException("Required tools were not called: " + missing);
                     String content = visible(modelMessage.path("content").asText(""));
                     if (content.isEmpty()) throw new IllegalStateException("Model returned an empty answer");
+                    Map<String, Object> path = java.util.Collections.emptyMap();
+                    if ("path".equals(type)) {
+                        path = LearningPathParser.parse(content, objectMapper, context);
+                        path.put("evidence", graphEvidence);
+                        content = LearningPathParser.describe(path);
+                    }
                     if ("path".equals(type) && toolsUsed.contains("get_graph_prerequisites") && !graphUsed) {
                         content = "知识图谱当前不可用，或没有匹配到明确的先修关系；"
                                 + "以下路径仅基于学习记录与已审核资源生成，尚未完成图谱校验。\n" + content;
                     }
                     return new LearningAgentResult(requestId, content, new ArrayList<String>(toolsUsed),
-                            new ArrayList<String>(sources), graphUsed);
+                            new ArrayList<String>(sources), graphUsed, path);
                 }
                 for (JsonNode call : toolCalls) {
                     if (++toolCallCount > MAX_TOOL_CALLS) {
@@ -103,6 +110,7 @@ public class LearningAgentAiService {
                     toolsUsed.add(name);
                     sources.addAll(result.getSources());
                     graphUsed = graphUsed || result.isGraphUsed();
+                    if ("get_graph_prerequisites".equals(name)) graphEvidence.add(result.getData());
                     Map<String, Object> toolMessage = message("tool", objectMapper.writeValueAsString(result.getData()));
                     toolMessage.put("tool_name", name);
                     messages.add(toolMessage);
@@ -127,7 +135,11 @@ public class LearningAgentAiService {
             return "生成课程诊断，包含：当前状态、最需要补强的知识点、接下来三项行动。控制在 300 字以内。";
         }
         if ("path".equals(type)) {
-            return "生成分阶段学习路径，按 1-5 个步骤说明学习顺序、每步目标和进入下一步的标准。控制在 400 字以内。";
+            return "先调用学习概况、候选课程和图谱先修工具，再生成1-5步个人学习路径。"
+                    + "最终只输出JSON：{\"title\":\"路径名称\",\"summary\":\"规划说明\",\"steps\":["
+                    + "{\"title\":\"步骤名称\",\"goal\":\"学习目标\",\"completionCriteria\":\"完成标准\",\"courseId\":null}]}。"
+                    + "courseId只允许引用get_learning_resources返回的课程ID；无匹配课程必须为null。"
+                    + "遵守工具中明确的先修关系；建议学习顺序不代表新增公共先修关系。每步描述简短，总字数约400字。";
         }
         if ("recommend".equals(type)) {
             return "从候选资源 resources 中推荐最匹配的学习资源并解释原因。不得推荐候选列表之外的具体课程；没有候选资源时说明暂无可推荐资源。控制在 350 字以内。";

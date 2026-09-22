@@ -48,7 +48,7 @@ public class LearningAgentToolbox {
             return Collections.singletonList("get_learning_resources");
         }
         if ("path".equals(type)) {
-            return Collections.singletonList("get_graph_prerequisites");
+            return java.util.Arrays.asList("get_learning_profile", "get_learning_resources", "get_graph_prerequisites");
         }
         return Collections.emptyList();
     }

@@ -40,6 +40,7 @@ import {
   ZoomOut
 } from "lucide-react";
 import HeaderNav from "./components/HeaderNav";
+import LearningPathGraph from "./components/LearningPathGraph";
 import CategoryCascader from "./components/CategoryCascader";
 import SearchPanel from "./components/SearchPanel";
 import CourseCard from "./components/CourseCard";
@@ -355,14 +356,15 @@ function App() {
     return defaultPageForUser(savedUser, setupPending, pageFromPath(window.location.pathname));
   });
   const [preferences, setPreferences] = useState(readStoredPreferences);
-  const [resources, setResources] = useState(seedResources);
-  const [resourceMeta, setResourceMeta] = useState({ page: 1, size: 12, total: seedResources.length, totalPages: 1 });
+  const [resources, setResources] = useState([]);
+  const [resourceMeta, setResourceMeta] = useState({ page: 1, size: 12, total: 0, totalPages: 1 });
   const [categoryTree, setCategoryTree] = useState(knowledgeCategories);
   const [platformCategories, setPlatformCategories] = useState([]);
   const [catalogSubjects, setCatalogSubjects] = useState(fallbackCatalog);
   const [selectedSubject, setSelectedSubject] = useState(preferences[0] || "软件工程");
   const [selectedCourseId, setSelectedCourseId] = useState(() => courseIdFromPath(window.location.pathname));
   const [selectedLessonId, setSelectedLessonId] = useState(() => lessonIdFromPath(window.location.pathname));
+  const [graphSelection, setGraphSelection] = useState(() => ({ view: new URLSearchParams(window.location.search).get("view") || "path", pathId: new URLSearchParams(window.location.search).get("pathId") }));
   const [needsInterestSetup, setNeedsInterestSetup] = useState(() => localStorage.getItem("learning_needs_interest_setup") === "1");
   const [authNotice, setAuthNotice] = useState("");
   const currentPathRef = useRef(window.location.pathname);
@@ -389,17 +391,23 @@ function App() {
   const updateBrowserHistory = (nextPage, options = {}) => {
     const courseId = Number(options.courseId || selectedCourseId || 0) || null;
     const lessonId = Number(options.lessonId || selectedLessonId || 0) || null;
-    const path = nextPage === "course" && courseId
+    let path = nextPage === "course" && courseId
       ? `/course/${courseId}`
       : nextPage === "learn" && courseId && lessonId
         ? `/learn/${courseId}/${lessonId}`
         : pagePaths[nextPage] || "/home";
+    if (nextPage === "graph") {
+      const selection = options.graphSelection || graphSelection;
+      const query = new URLSearchParams({ view: selection.view });
+      if (selection.pathId) query.set("pathId", selection.pathId);
+      path += `?${query}`;
+    }
     const state = { page: nextPage, ...(courseId ? { courseId } : {}), ...(lessonId ? { lessonId } : {}) };
     if (options.replace) {
       window.history.replaceState(state, "", path);
       return path;
     }
-    if (window.location.pathname !== path || window.history.state?.page !== nextPage) {
+    if (window.location.pathname + window.location.search !== path || window.history.state?.page !== nextPage) {
       window.history.pushState(state, "", path);
     }
     return path;
@@ -413,12 +421,14 @@ function App() {
       && Number(nextCourseId) === Number(selectedCourseId);
 
     scrollPositionsRef.current.set(currentPathRef.current, window.scrollY);
-    const nextPath = updateBrowserHistory(resolved, options);
+    const nextGraphSelection = { view: options.view || "path", pathId: options.pathId || null };
+    const nextPath = updateBrowserHistory(resolved, { ...options, ...(resolved === "graph" ? { graphSelection: nextGraphSelection } : {}) });
     currentPathRef.current = nextPath;
 
     const commitRoute = () => {
       if (["course", "learn"].includes(resolved) && options.courseId) setSelectedCourseId(Number(options.courseId));
       if (resolved === "learn" && options.lessonId) setSelectedLessonId(Number(options.lessonId));
+      if (resolved === "graph") setGraphSelection(nextGraphSelection);
       setPageState(resolved);
     };
     const canTransition = typeof document.startViewTransition === "function"
@@ -449,6 +459,7 @@ function App() {
       const commitRoute = () => {
         if (routeCourseId) setSelectedCourseId(routeCourseId);
         if (routeLessonId) setSelectedLessonId(routeLessonId);
+        if (routePage === "graph") setGraphSelection({ view: new URLSearchParams(window.location.search).get("view") || "path", pathId: new URLSearchParams(window.location.search).get("pathId") });
         setPageState(defaultPageForUser(user, needsInterestSetup, routePage));
       };
       currentPathRef.current = targetPath;
@@ -484,18 +495,6 @@ function App() {
     };
     window.addEventListener("learning:unauthorized", onUnauthorized);
     return () => window.removeEventListener("learning:unauthorized", onUnauthorized);
-  }, []);
-
-  useEffect(() => {
-    getCourses({ pageNum: 1, pageSize: 12 }).then((data) => {
-      setResources(data.list?.length ? data.list : seedResources);
-      setResourceMeta({
-        page: data.pageNum || 1,
-        size: data.pageSize || 12,
-        total: data.total ?? data.list?.length ?? seedResources.length,
-        totalPages: data.totalPages || 1
-      });
-    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -631,6 +630,7 @@ function App() {
         />
       )}
       {page === "graph" && (
+        <LearningPathGraph key={user?.id} selection={graphSelection} setPage={navigatePage}>
         <KnowledgeGraph
           subject={selectedSubject}
           categoryTree={categoryTree}
@@ -638,6 +638,7 @@ function App() {
           setSelectedSubject={setSelectedSubject}
           setPage={navigatePage}
         />
+        </LearningPathGraph>
       )}
       {page === "course" && (
         <CourseDetailPage
@@ -657,7 +658,7 @@ function App() {
         />
       )}
       {page === "learning" && <MyLearningPage setPage={navigatePage} setSelectedSubject={setSelectedSubject} />}
-      {page === "agents" && <AgentsPage preferences={preferences} />}
+      {page === "agents" && <AgentsPage preferences={preferences} setPage={navigatePage} />}
       {page === "messages" && <MessagesPage user={user} setPage={navigatePage} />}
       {page === "teacher" && <TeacherDashboard resources={resources} setResources={setResources} setResourceMeta={setResourceMeta} />}
       {page === "admin" && <AdminDashboard setPage={navigatePage} />}
@@ -798,6 +799,11 @@ function StudentHome({ resources, setResources, resourceMeta, setResourceMeta, p
   const [confirmedSelection, setConfirmedSelection] = useState({ query: "", categoryId: "", directionId: "", type: "" });
   const [filterPath, setFilterPath] = useState([]);
   const [loadingResources, setLoadingResources] = useState(false);
+  const [resourceError, setResourceError] = useState("");
+  const resourceRequestRef = useRef(0);
+  const searchTimerRef = useRef(null);
+  const submittedQueryRef = useRef("");
+  const lastRequestRef = useRef({ page: 1, selection: confirmedSelection });
   const normalizedQuery = query.trim().toLowerCase();
   const tree = categoryTree?.length ? categoryTree : knowledgeCategories;
   const visibleCatalog = catalogFromCategories(tree, query).map((item) => {
@@ -811,14 +817,19 @@ function StudentHome({ resources, setResources, resourceMeta, setResourceMeta, p
   const displayResources = useMemo(() => {
     const seen = new Set();
     return resources.filter((item) => {
-      const key = String(item.title || item.id).trim();
+      const key = String(item.id);
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
   }, [resources]);
   const loadResources = async (page = 1, selection = confirmedSelection) => {
+    clearTimeout(searchTimerRef.current);
+    const requestId = ++resourceRequestRef.current;
+    submittedQueryRef.current = selection.query;
+    lastRequestRef.current = { page, selection };
     setLoadingResources(true);
+    setResourceError("");
     try {
       const data = await getCourses({
         pageNum: page,
@@ -828,6 +839,7 @@ function StudentHome({ resources, setResources, resourceMeta, setResourceMeta, p
         directionId: selection.directionId,
         type: selection.type
       });
+      if (requestId !== resourceRequestRef.current) return;
       setResources(data.list || []);
       setResourceMeta({
         page: data.pageNum || page,
@@ -835,17 +847,29 @@ function StudentHome({ resources, setResources, resourceMeta, setResourceMeta, p
         total: data.total || 0,
         totalPages: data.totalPages || 1
       });
+    } catch (error) {
+      if (requestId === resourceRequestRef.current) setResourceError(error?.message || "课程加载失败，请重试");
     } finally {
-      setLoadingResources(false);
+      if (requestId === resourceRequestRef.current) setLoadingResources(false);
     }
   };
+  useEffect(() => {
+    loadResources(1);
+    return () => {
+      resourceRequestRef.current += 1;
+      clearTimeout(searchTimerRef.current);
+    };
+  }, []);
   const confirmSelection = (event) => {
     event.preventDefault();
     const selection = { query: query.trim(), ...filters };
     setConfirmedSelection(selection);
-    loadResources(1, selection).catch((error) => handleActionError(error, "课程筛选失败"));
+    loadResources(1, selection);
+    document.getElementById("featured-courses")?.scrollIntoView({ behavior: "smooth" });
   };
   const changeFilterPath = (path) => {
+    if (path[2]) setQuery(path[2]);
+    else if (query === filterPath[2]) setQuery("");
     setFilterPath(path);
     const category = (platformCategories || []).find((item) => item.name === path[0]);
     const direction = (category?.directions || []).find((item) => item.name === path[1]);
@@ -856,23 +880,33 @@ function StudentHome({ resources, setResources, resourceMeta, setResourceMeta, p
     }));
   };
   useEffect(() => {
-    if (query.trim().length < 2) return undefined;
-    const timer = setTimeout(() => {
+    if (query.trim() === submittedQueryRef.current) return undefined;
+    searchTimerRef.current = setTimeout(() => {
       const selection = { query: query.trim(), ...filters };
       setConfirmedSelection(selection);
-      loadResources(1, selection).catch(() => {});
+      loadResources(1, selection);
     }, 450);
-    return () => clearTimeout(timer);
+    return () => clearTimeout(searchTimerRef.current);
   }, [query]);
+  const selectCourseTab = (label) => {
+    const selection = { query: label, categoryId: "", directionId: "", type: "" };
+    setQuery(label);
+    setFilterPath([]);
+    setFilters({ categoryId: "", directionId: "", type: "" });
+    setConfirmedSelection(selection);
+    loadResources(1, selection);
+  };
   const openCatalog = (subject, node) => {
     const nodeTitle = typeof node === "string" ? node : node?.title;
-    const targetPath = typeof node === "object" && Array.isArray(node.path) ? node.path : [subject];
+    const targetPath = typeof node === "object" && Array.isArray(node.path)
+      ? node.path
+      : findCategoryPath(nodeTitle || subject, tree) || [subject];
     const targetSubject = targetPath[targetPath.length - 1] || subject;
     setSelectedSubject(targetSubject);
     if (nodeTitle && targetSubject === subject) {
       api("/learning/records", { method: "POST", body: JSON.stringify({ subject: targetSubject, knowledgeNode: nodeTitle, progress: 10 }) }).catch(() => {});
     }
-    setPage("graph");
+    setPage("graph", { view: "catalog" });
   };
 
   const spotlightCategories = visibleCatalog.slice(0, 6);
@@ -898,7 +932,7 @@ function StudentHome({ resources, setResources, resourceMeta, setResourceMeta, p
           </div>
           <div className="studio-metrics">
             <div><strong>{platformCategories.length || visibleCatalog.length}</strong><span>学习领域</span></div>
-            <div><strong>{resourceMeta?.total || displayResources.length}</strong><span>系统课程</span></div>
+            <div><strong>{resourceMeta?.total ?? displayResources.length}</strong><span>系统课程</span></div>
             <div><strong>100+</strong><span>知识节点</span></div>
           </div>
         </div>
@@ -962,12 +996,13 @@ function StudentHome({ resources, setResources, resourceMeta, setResourceMeta, p
         </div>
         <div className="studio-course-tabs" role="list" aria-label="课程筛选">
           {["本周精选", "人工智能", "Java", "前端开发", "云计算"].map((label, index) => (
-            <button className={index === 0 && !query ? "active" : ""} key={label} onClick={() => setQuery(index ? label : "")}>{label}</button>
+            <button className={confirmedSelection.query === (index ? label : "") ? "active" : ""} key={label} onClick={() => selectCourseTab(index ? label : "")}>{label}</button>
           ))}
-          <span>{loadingResources ? "正在更新" : `${resourceMeta?.total || displayResources.length} 门课程可学`}</span>
+          <span>{loadingResources ? "正在更新" : `${resourceMeta?.total ?? displayResources.length} 门课程可学`}</span>
         </div>
+        {resourceError && <div className="inline-error-state" role="alert"><span>{resourceError}</span><button type="button" disabled={loadingResources} onClick={() => loadResources(lastRequestRef.current.page, lastRequestRef.current.selection)}>重新加载</button></div>}
         <section className="resource-grid studio-course-grid">
-          {displayResources.slice(0, 8).map((item) => (
+          {displayResources.map((item) => (
             <CourseCard
               item={item}
               key={item.id}
@@ -975,16 +1010,16 @@ function StudentHome({ resources, setResources, resourceMeta, setResourceMeta, p
               onOpenCourse={(course) => setPage("course", { courseId: course.id })}
               onOpenGraph={(direction) => {
                 setSelectedSubject(direction);
-                setPage("graph");
+                setPage("graph", { view: "catalog" });
               }}
             />
           ))}
-          {!displayResources.length && <p className="empty-state-react">暂无匹配课程，可以换个关键词或让教师上传相关资源。</p>}
+          {!displayResources.length && !loadingResources && !resourceError && <p className="empty-state-react">暂无匹配课程，可以换个关键词或让教师上传相关资源。</p>}
         </section>
         <div className="pager-row">
-          <button disabled={(resourceMeta?.page || 1) <= 1} onClick={() => loadResources((resourceMeta?.page || 1) - 1)}>上一页</button>
+          <button disabled={loadingResources || (resourceMeta?.page || 1) <= 1} onClick={() => loadResources((resourceMeta?.page || 1) - 1)}>上一页</button>
           <span>{resourceMeta?.page || 1} / {resourceMeta?.totalPages || 1}</span>
-          <button disabled={(resourceMeta?.page || 1) >= (resourceMeta?.totalPages || 1)} onClick={() => loadResources((resourceMeta?.page || 1) + 1)}>下一页</button>
+          <button disabled={loadingResources || (resourceMeta?.page || 1) >= (resourceMeta?.totalPages || 1)} onClick={() => loadResources((resourceMeta?.page || 1) + 1)}>下一页</button>
         </div>
       </section>
 
@@ -1017,6 +1052,7 @@ function CourseDetailPage({ courseId, user, fallbackCourse, setResources, setPag
   const [course, setCourse] = useState(fallbackCourse || null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [detailReload, setDetailReload] = useState(0);
   const [activeTab, setActiveTab] = useState("chapters");
   const [community, setCommunity] = useState({ questions: [], notes: [], reviews: [], replies: [], reviewSummary: {} });
   const [questionText, setQuestionText] = useState("");
@@ -1060,10 +1096,12 @@ function CourseDetailPage({ courseId, user, fallbackCourse, setResources, setPag
     }
     setLoading(true);
     setError("");
+    let cancelled = false;
     Promise.allSettled([getCourseDetail(courseId), getCourseCommunity(courseId)]).then(([detailResult, communityResult]) => {
+      if (cancelled) return;
       if (detailResult.status === "fulfilled") {
         setCourse(detailResult.value);
-      } else if (!fallbackCourse) {
+      } else {
         setError(detailResult.reason?.message || "课程详情加载失败");
       }
       if (communityResult.status === "fulfilled") {
@@ -1076,8 +1114,9 @@ function CourseDetailPage({ courseId, user, fallbackCourse, setResources, setPag
           reviewSummary: data.reviewSummary || {}
         });
       }
-    }).finally(() => setLoading(false));
-  }, [courseId]);
+    }).finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [courseId, detailReload]);
 
   const outline = course?.outline || {};
   const chapters = Array.isArray(outline.chapters) ? outline.chapters : [];
@@ -1180,17 +1219,21 @@ function CourseDetailPage({ courseId, user, fallbackCourse, setResources, setPag
   };
 
   const startLearning = async () => {
-    if (adminPreview) {
-      openLearning(null);
-      return;
-    }
+    if (!course?.id || loading || busyAction) return;
+    setBusyAction("learning");
     try {
+      if (adminPreview) {
+        await openLearning(null);
+        return;
+      }
       const courseProgress = await getCourseLearningProgress(course.id);
       const allLessons = chapters.flatMap((chapter) => chapter.lessons || []);
       const resumeLesson = allLessons.find((item) => Number(item.id) === Number(courseProgress.lastLessonId));
-      openLearning(resumeLesson || null);
-    } catch {
-      openLearning(null);
+      await openLearning(resumeLesson || null);
+    } catch (actionError) {
+      handleActionError(actionError, "打开学习页失败");
+    } finally {
+      setBusyAction("");
     }
   };
 
@@ -1275,15 +1318,15 @@ function CourseDetailPage({ courseId, user, fallbackCourse, setResources, setPag
   const openRelatedGraph = () => {
     const subject = course?.directionName || course?.subject || "软件工程";
     setSelectedSubject(subject);
-    setPage("graph");
+    setPage("graph", { view: "catalog" });
   };
 
-  if (loading && !course) {
+  if (loading) {
     return <main className="course-detail-loading"><span className="studio-kicker">LOADING COURSE</span><h2>正在建立课程学习空间...</h2></main>;
   }
 
-  if (!course) {
-    return <main className="course-detail-loading"><span className="studio-kicker">COURSE NOT FOUND</span><h2>{error || "课程不存在或已下架"}</h2><button onClick={() => setPage("home")}>返回首页</button></main>;
+  if (error || !course) {
+    return <main className="course-detail-loading"><h2 role="alert">{error || "课程不存在或已下架"}</h2><button onClick={() => setDetailReload((value) => value + 1)}>重新加载</button><button onClick={() => setPage("home")}>返回首页</button></main>;
   }
 
   const tabs = [
@@ -1314,14 +1357,14 @@ function CourseDetailPage({ courseId, user, fallbackCourse, setResources, setPag
               <div className="course-instructor"><span>{String(course.teacher || "平台讲师").slice(0, 1)}</span><div><strong>{course.teacher || "平台讲师"}</strong><small>{course.directionName || course.subject} 课程讲师</small></div></div>
             </div>
             <aside className="course-enroll-card">
-              <button type="button" className="course-enroll-visual" onClick={startLearning} aria-label={course.type === "video" ? "播放课程视频" : "打开课程学习资料"}>
+              <button type="button" className="course-enroll-visual" onClick={startLearning} disabled={loading || !!busyAction} aria-label={course.type === "video" ? "播放课程视频" : "打开课程学习资料"}>
                 {course.type === "video" ? <PlayCircle size={52} /> : <BookOpen size={48} />}
                 <strong>{course.type === "video" ? "点击播放课程" : "点击打开课程"}</strong>
                 <span>{course.type === "video" ? "视频课程" : "图文学习资料"}</span>
               </button>
               <div className="course-enroll-body">
                 <div className="course-enroll-progress"><span><b style={{ width: `${progress}%` }} /></span><strong>{progress}%</strong></div>
-                <button onClick={startLearning} disabled={busyAction === "learning"}>{busyAction === "learning" ? "正在记录..." : progress > 0 ? "继续学习" : "开始学习"}<ArrowRight size={16} /></button>
+                <button onClick={startLearning} disabled={loading || !!busyAction}>{busyAction === "learning" ? "正在打开..." : progress > 0 ? "继续学习" : "开始学习"}<ArrowRight size={16} /></button>
                 <p><CheckCircle2 size={15} />包含 {chapters.length} 章、{totalLessons} 节内容</p>
                 <p><CheckCircle2 size={15} />课程图谱与章节同步关联</p>
                 <p><CheckCircle2 size={15} />学习记录永久保留</p>
@@ -2098,7 +2141,7 @@ function MyLearningPage({ setPage, setSelectedSubject }) {
 
   const openGraph = (subject) => {
     setSelectedSubject(subject || "Java");
-    setPage("graph");
+    setPage("graph", { view: "catalog" });
   };
 
   const summary = learning.summary || {};
@@ -2278,13 +2321,13 @@ function MyLearningPage({ setPage, setSelectedSubject }) {
             </div>
             <div className="favorite-mini-list">
               {learning.favorites.map((item) => (
-                <div className="favorite-mini-row" key={item.id}>
+                <button type="button" className="favorite-mini-row" key={item.id} onClick={() => setPage("course", { courseId: item.id })} aria-label={`查看收藏课程：${item.title}`}>
                   <Heart size={16} />
                   <div>
                     <strong>{item.title}</strong>
                     <span>{item.subject} / {item.type === "video" ? "视频" : "资料"}</span>
                   </div>
-                </div>
+                </button>
               ))}
               {showEmptyStates && !learning.favorites.length && <p className="muted">还没有收藏资源。</p>}
             </div>
@@ -2331,7 +2374,7 @@ function formatLearningDate(value) {
   return String(value).replace("T", " ").slice(0, 19);
 }
 
-function AgentsPage({ preferences }) {
+function AgentsPage({ preferences, setPage }) {
   const [outputs, setOutputs] = useState({});
   const [reports, setReports] = useState([]);
   const [busyAgents, setBusyAgents] = useState({});
@@ -2374,7 +2417,8 @@ function AgentsPage({ preferences }) {
           model: data?.model || "",
           tools: Array.isArray(data?.toolsUsed) ? data.toolsUsed : [],
           sources: Array.isArray(data?.sources) ? data.sources : [],
-          graphUsed: Boolean(data?.graphUsed)
+          graphUsed: Boolean(data?.graphUsed),
+          learningPath: data?.learningPath || null
         }
       }));
       if (id === "analysis") await loadReports();
@@ -2451,6 +2495,7 @@ function AgentsPage({ preferences }) {
               {outputs[agent.id] && (
                 <div className={`agent-output${outputs[agent.id].error ? " error" : ""}`} role={outputs[agent.id].error ? "alert" : undefined}>
                   {outputs[agent.id].text}
+                  {outputs[agent.id].learningPath && <div className="agent-path-action"><p>{outputs[agent.id].learningPath.neo4jSynced ? "个人路径已生成并写入 Neo4j。" : "个人路径已保存，Neo4j 恢复后可同步。"}</p><button onClick={() => setPage("graph", { pathId: outputs[agent.id].learningPath.pathId })}>查看我的路径图谱<GitBranch size={16} /></button></div>}
                   {!outputs[agent.id].error && outputs[agent.id].model && (
                     <small>由 {outputs[agent.id].model} 生成 · 调用 {outputs[agent.id].tools.length} 个工具</small>
                   )}
@@ -2680,6 +2725,8 @@ function MessagesPage({ user, setPage }) {
 }
 
 function TeacherDashboard({ resources, setResources, setResourceMeta }) {
+  const editorRef = useRef(null);
+  const titleInputRef = useRef(null);
   const [form, setForm] = useState({ title: "", subject: "Java", type: "video", level: "入门", description: "", content: "" });
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -2729,6 +2776,8 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
 
   const resetForm = () => {
     setEditingId(null);
+    setResourceNotice("");
+    setResourceError("");
     setForm({ title: "", subject: "Java", type: "video", level: "入门", description: "", content: "" });
     setFileInputKey((current) => current + 1);
   };
@@ -2780,7 +2829,7 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
 
   const startEdit = (item) => {
     if (!item?.id || saving || deletingId !== null) return;
-    setResourceNotice("");
+    setResourceNotice(`正在编辑：${item.title}`);
     setResourceError("");
     setEditingId(item.id);
     setForm({
@@ -2790,6 +2839,10 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
       level: item.level || "入门",
       description: item.description || "",
       content: item.content || buildResourceTextContent(item)
+    });
+    window.requestAnimationFrame(() => {
+      editorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      titleInputRef.current?.focus({ preventScroll: true });
     });
   };
 
@@ -2847,7 +2900,7 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
       </div>
 
       <section className="teacher-layout">
-        <section>
+        <section id="teacher-course-editor" className="teacher-course-editor" ref={editorRef}>
           <div className="page-title compact">
             <span className="eyebrow">资源管理</span>
             <h2>{editingId ? "修改课程作品" : "提交视频或文字课程"}</h2>
@@ -2855,7 +2908,7 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
           {resourceNotice && <p className="inline-success-state" role="status">{resourceNotice}</p>}
           {resourceError && <p className="inline-error-state" role="alert">{resourceError}</p>}
           <form className="teacher-form" onSubmit={submit} aria-busy={saving}>
-            <input placeholder="课程或资源标题" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
+            <input ref={titleInputRef} placeholder="课程或资源标题" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
             <select value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })}>{subjects.map((s) => <option key={s}>{s}</option>)}</select>
             <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}><option value="video">视频</option><option value="material">学习资料</option></select>
             <select value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })}><option>入门</option><option>进阶</option><option>项目实战</option></select>
@@ -3017,14 +3070,14 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
         </div>
         <div className="teacher-course-list">
           {resources.map((item) => (
-            <div className="teacher-resource-item" key={item.id}>
+            <div className={`teacher-resource-item${editingId === item.id ? " is-editing" : ""}`} key={item.id}>
               <div className={`review-status-chip ${item.reviewStatus || "pending"}`}>
                 {item.reviewStatus === "approved" ? "已通过" : item.reviewStatus === "rejected" ? "已驳回" : "审核中"}
               </div>
               <ResourceCard item={item} />
               {item.reviewFeedback && <p className="teacher-review-feedback"><MessageCircle size={14} /><span><strong>管理员反馈</strong>{item.reviewFeedback}</span></p>}
               <div className="teacher-resource-actions">
-                <button disabled={saving || deletingId !== null} onClick={() => startEdit(item)}>编辑</button>
+                <button type="button" aria-controls="teacher-course-editor" aria-pressed={editingId === item.id} disabled={saving || deletingId !== null} onClick={() => startEdit(item)}>编辑</button>
                 <button disabled={saving || deletingId !== null} onClick={() => deleteResource(item.id)}>
                   {deletingId === item.id ? "删除中..." : "删除"}
                 </button>

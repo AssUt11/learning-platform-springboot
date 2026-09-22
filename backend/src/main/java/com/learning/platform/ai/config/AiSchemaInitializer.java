@@ -18,6 +18,13 @@ public class AiSchemaInitializer {
 
     @PostConstruct
     public void initialize() {
+        jdbcTemplate.execute("create table if not exists student_learning_paths ("
+                + "id bigint primary key auto_increment,path_id varchar(64) not null unique,"
+                + "user_id bigint not null,snapshot_json longtext not null,neo4j_synced tinyint not null default 0,"
+                + "created_at timestamp not null default current_timestamp,"
+                + "index idx_student_paths_user(user_id,id),"
+                + "constraint fk_student_paths_user foreign key(user_id) references users(id) on delete cascade"
+                + ") engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci");
         jdbcTemplate.execute("create table if not exists ai_conversation ("
                 + "id bigint primary key auto_increment,"
                 + "user_id bigint not null,"
