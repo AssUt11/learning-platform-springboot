@@ -9,6 +9,7 @@ import com.learning.platform.ai.domain.AiProviderMessage;
 import com.learning.platform.ai.domain.AiProviderRequest;
 import com.learning.platform.ai.domain.AiUsage;
 import org.springframework.stereotype.Component;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 import java.io.BufferedReader;
 import java.io.InputStream;
@@ -30,6 +31,7 @@ import javax.annotation.PreDestroy;
 import com.learning.platform.exception.BusinessException;
 
 @Component
+@ConditionalOnProperty(prefix = "app.ai", name = "provider", havingValue = "ollama", matchIfMissing = true)
 public class OllamaProvider implements AiModelProvider {
     private final AiProperties properties;
     private final ObjectMapper objectMapper;

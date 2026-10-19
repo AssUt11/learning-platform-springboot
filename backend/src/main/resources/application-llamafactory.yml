@@ -1,0 +1,6 @@
+# Activate with --spring.profiles.active=llamafactory or SPRING_PROFILES_ACTIVE.
+# The model API is configured through LLAMAFACTORY_* in application.yml.
+app:
+  ai:
+    enabled: ${AI_TUTOR_ENABLED:true}
+    provider: llamafactory

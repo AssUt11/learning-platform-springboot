@@ -235,10 +235,10 @@ public class AiTutorApplicationService {
         Map<String, Object> completed = new LinkedHashMap<String, Object>();
         completed.put("messageId", control.assistantMessageId);
         completed.put("requestId", control.requestId);
-        completed.put("promptTokens", usage.getPromptTokens());
-        completed.put("outputTokens", usage.getOutputTokens());
+        completed.put("promptTokens", usage.getPromptTokens() < 0 ? null : usage.getPromptTokens());
+        completed.put("outputTokens", usage.getOutputTokens() < 0 ? null : usage.getOutputTokens());
         completed.put("totalDurationMs", usage.getTotalDurationMs());
-        completed.put("tokensPerSecond", usage.getTokensPerSecond());
+        completed.put("tokensPerSecond", usage.getOutputTokens() < 0 ? null : usage.getTokensPerSecond());
         completed.put("neo4jUsed", control.context.isNeo4jAvailable());
         completed.put("graphNodeCount", control.context.getGraphNodeCount());
         send(control.emitter, "message.completed", completed);

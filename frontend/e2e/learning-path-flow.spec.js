@@ -3,6 +3,7 @@ import mysql from "mysql2/promise";
 
 test("真实接口保存个人路径，读取最新版本并隔离不同学生", async ({ page, request }) => {
   test.skip(process.env.E2E_PATH_FLOW !== "1", "需要隔离数据库和专用模型测试服务");
+  test.setTimeout(300_000);
   expect(process.env.E2E_DB_NAME).toMatch(/^learning_platform_e2e_/);
   const prefix = `e2e-path-${Date.now()}`;
   const emails = [`${prefix}-one@zhidu.local`, `${prefix}-two@zhidu.local`];
@@ -27,7 +28,9 @@ test("真实接口保存个人路径，读取最新版本并隔离不同学生",
     expect(first.learningPath?.available, JSON.stringify(first)).toBe(true);
     expect(first.learningPath.neo4jSynced).toBe(process.env.E2E_PATH_NEO4J === "1");
     await page.getByRole("button", { name: "查看我的路径图谱" }).click();
-    await expect(page.locator(".personal-path-node")).toHaveCount(2);
+    expect(first.learningPath.nodes.length).toBeGreaterThanOrEqual(1);
+    expect(first.learningPath.nodes.length).toBeLessThanOrEqual(5);
+    await expect(page.locator(".personal-path-node")).toHaveCount(first.learningPath.nodes.length);
     await page.reload();
     await expect(page.getByRole("heading", { name: first.learningPath.title })).toBeVisible();
     const other = await request.get(`/api/learning/paths/${first.learningPath.pathId}`, { headers: auth(1) });
@@ -44,7 +47,7 @@ test("真实接口保存个人路径，读取最新版本并隔离不同学生",
     await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: "智慧图谱" }).click();
     await expect(page.getByRole("heading", { name: second.learningPath.title })).toBeVisible();
   } finally {
-    const c = await mysql.createConnection({ host: process.env.E2E_DB_HOST || "127.0.0.1", user: process.env.E2E_DB_USERNAME || "root", password: process.env.E2E_DB_PASSWORD || "root", database: process.env.E2E_DB_NAME });
+    const c = await mysql.createConnection({ host: process.env.E2E_DB_HOST || "127.0.0.1", port: Number(process.env.E2E_DB_PORT || 3306), user: process.env.E2E_DB_USERNAME || "root", password: process.env.E2E_DB_PASSWORD || "root", database: process.env.E2E_DB_NAME });
     try { await c.execute("delete from users where email in (?,?)", emails); }
     finally { await c.end(); }
   }

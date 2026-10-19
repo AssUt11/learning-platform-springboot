@@ -1,0 +1,13 @@
+# Local machine inference: base model + completed Zhidu LoRA run (171 steps).
+# Keep the SAME template as training_args.yaml. Do not replace it with qwen3.
+model_name_or_path: D:/LLaMA-Factory/cache/huggingface/models--Qwen--Qwen3-4B-Base/snapshots/906bfd4b4dc7f14ee4320094d8b41684abff8539
+adapter_name_or_path: D:/LLaMA-Factory/LlamaFactory/saves/Qwen3-4B-Base/lora/train_2026-09-22-21-30-44
+template: default
+finetuning_type: lora
+infer_backend: huggingface
+quantization_bit: 4
+quantization_method: bnb
+infer_dtype: float16
+trust_remote_code: false
+do_sample: false
+max_new_tokens: 600

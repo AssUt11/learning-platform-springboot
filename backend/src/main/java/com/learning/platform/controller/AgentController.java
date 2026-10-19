@@ -378,6 +378,7 @@ public class AgentController {
     }
 
     private void addAgentMetadata(Map<String, Object> response, LearningAgentResult agentResult) {
+        response.put("agentMode", agentAiService.executionMode());
         response.put("requestId", agentResult.getRequestId());
         response.put("toolsUsed", agentResult.getToolsUsed());
         response.put("sources", agentResult.getSources());

@@ -48,7 +48,8 @@ public class AiHealthController {
         result.put("queuedRequests", tutorService.queueSize());
         if ("admin".equals(user.get("role"))) {
             result.put("model", provider.modelCode());
-            result.put("ollama", providerHealth);
+            result.put("modelService", providerHealth);
+            if ("ollama".equals(provider.providerCode())) result.put("ollama", providerHealth);
             result.put("neo4j", neo4jHealth);
         }
         return Result.success(result);

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BarChart3, BookOpen, Brain, ChevronDown, GitBranch, GraduationCap, LogOut, MessageCircle, ShieldCheck, Upload } from "lucide-react";
+import { BarChart3, BookOpen, Bot, Brain, ChevronDown, GitBranch, GraduationCap, LogOut, MessageCircle, ShieldCheck, Upload } from "lucide-react";
 
 export default function HeaderNav({ user, page, onNavigate, onLogout }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -13,6 +13,7 @@ export default function HeaderNav({ user, page, onNavigate, onLogout }) {
         { id: "learning", label: "我的学习", icon: BarChart3 },
         { id: "agents", label: "AI 学伴", icon: Brain },
         { id: "messages", label: "消息", icon: MessageCircle },
+        { id: "chat", label: "Agent 对话", icon: Bot },
         { id: "teacher", label: "课程上传/管理", icon: Upload }
       ]
       : [
@@ -20,7 +21,8 @@ export default function HeaderNav({ user, page, onNavigate, onLogout }) {
         { id: "graph", label: "智慧图谱", icon: GitBranch },
         { id: "learning", label: "我的学习", icon: BarChart3 },
         { id: "agents", label: "AI 学伴", icon: Brain },
-        { id: "messages", label: "消息", icon: MessageCircle }
+        { id: "messages", label: "消息", icon: MessageCircle },
+        { id: "chat", label: "Agent 对话", icon: Bot }
       ];
   const roleLabel = user.role === "teacher" ? "教师" : user.role === "admin" ? "管理员" : "学生";
   const avatarText = String(user.name || roleLabel).trim().slice(0, 1).toUpperCase();

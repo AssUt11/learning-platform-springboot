@@ -48,6 +48,8 @@ import CourseVideo from "./components/CourseVideo";
 import CourseLearningPage from "./components/CourseLearningPage";
 import request from "./utils/request";
 import { clearAuthStorage, handleActionError } from "./utils/auth";
+import useAgentAnalysis from "./utils/useAgentAnalysis";
+import AgentChatPage from "./components/AgentChatPage";
 import { getCategories, getKnowledgeCategoryTree } from "./api/category";
 import { addCourseNote, addCourseQuestion, deleteCourseNote, getCourseCommunity, getCourseDetail, getCourses, submitCourseReview } from "./api/course";
 import { getCourseLearningProgress, getLessonPlayback, getResumeLearning } from "./api/learning";
@@ -288,6 +290,7 @@ const pagePaths = {
   learning: "/learning",
   agents: "/agents",
   messages: "/messages",
+  chat: "/chat",
   teacher: "/teacher",
   admin: "/admin",
   interests: "/interests",
@@ -295,7 +298,7 @@ const pagePaths = {
   learn: "/learn"
 };
 
-const learnerPages = new Set(["home", "catalog", "graph", "learning", "agents", "messages", "course", "learn"]);
+const learnerPages = new Set(["home", "catalog", "graph", "learning", "agents", "messages", "chat", "course", "learn"]);
 const teacherPages = new Set([...learnerPages, "teacher"]);
 
 function pageFromPath(pathname) {
@@ -658,8 +661,11 @@ function App() {
         />
       )}
       {page === "learning" && <MyLearningPage setPage={navigatePage} setSelectedSubject={setSelectedSubject} />}
-      {page === "agents" && <AgentsPage preferences={preferences} setPage={navigatePage} />}
+      {page === "agents" && <AgentsPage user={user} preferences={preferences} setPage={navigatePage} />}
       {page === "messages" && <MessagesPage user={user} setPage={navigatePage} />}
+      {user && ["student", "teacher"].includes(user.role) && <div hidden={page !== "chat"}>
+        <AgentChatPage key={user.id} user={user} active={page === "chat"} />
+      </div>}
       {page === "teacher" && <TeacherDashboard resources={resources} setResources={setResources} setResourceMeta={setResourceMeta} />}
       {page === "admin" && <AdminDashboard setPage={navigatePage} />}
     </div>
@@ -909,7 +915,7 @@ function StudentHome({ resources, setResources, resourceMeta, setResourceMeta, p
     setPage("graph", { view: "catalog" });
   };
 
-  const spotlightCategories = visibleCatalog.slice(0, 6);
+  const spotlightCategories = visibleCatalog;
   const heroSubject = preferences[0] || visibleCatalog[0]?.name || "软件工程";
   const heroCategory = visibleCatalog.find((item) => item.name === heroSubject) || visibleCatalog[0];
   const graphPreviewLabels = (heroCategory?.nodes || []).slice(0, 5).map((item) => item.title);
@@ -995,7 +1001,7 @@ function StudentHome({ resources, setResources, resourceMeta, setResourceMeta, p
           </details>
         </div>
         <div className="studio-course-tabs" role="list" aria-label="课程筛选">
-          {["本周精选", "人工智能", "Java", "前端开发", "云计算"].map((label, index) => (
+          {["本周精选", "考研备考", "人工智能", "Java", "前端开发", "云计算"].map((label, index) => (
             <button className={confirmedSelection.query === (index ? label : "") ? "active" : ""} key={label} onClick={() => selectCourseTab(index ? label : "")}>{label}</button>
           ))}
           <span>{loadingResources ? "正在更新" : `${resourceMeta?.total ?? displayResources.length} 门课程可学`}</span>
@@ -2374,10 +2380,9 @@ function formatLearningDate(value) {
   return String(value).replace("T", " ").slice(0, 19);
 }
 
-function AgentsPage({ preferences, setPage }) {
-  const [outputs, setOutputs] = useState({});
+function AgentsPage({ user, preferences, setPage }) {
+  const { outputs, busyAgents, reportsVersion, runAnalysis } = useAgentAnalysis(user);
   const [reports, setReports] = useState([]);
-  const [busyAgents, setBusyAgents] = useState({});
   const [reportsLoading, setReportsLoading] = useState(true);
   const [reportsError, setReportsError] = useState("");
   const [reportAction, setReportAction] = useState("");
@@ -2399,38 +2404,11 @@ function AgentsPage({ preferences, setPage }) {
       setReportsLoading(false);
     }
   };
-  const runAgent = async (id) => {
-    if (busyAgents[id]) return;
-    setBusyAgents((prev) => ({ ...prev, [id]: true }));
-    setOutputs((prev) => ({ ...prev, [id]: null }));
-    try {
-      const data = await api(`/agents/${id}`, {
-        method: "POST",
-        body: JSON.stringify({ preferences }),
-        timeout: 150000
-      });
-      setOutputs((prev) => ({
-        ...prev,
-        [id]: {
-          text: data?.result || (data?.downloadUrl ? "学习分析报告已生成" : "分析已完成"),
-          error: false,
-          model: data?.model || "",
-          tools: Array.isArray(data?.toolsUsed) ? data.toolsUsed : [],
-          sources: Array.isArray(data?.sources) ? data.sources : [],
-          graphUsed: Boolean(data?.graphUsed),
-          learningPath: data?.learningPath || null
-        }
-      }));
-      if (id === "analysis") await loadReports();
-    } catch (error) {
-      setOutputs((prev) => ({
-        ...prev,
-        [id]: { text: `分析失败：${error?.message || "请稍后重试"}`, error: true }
-      }));
-    } finally {
-      setBusyAgents((prev) => ({ ...prev, [id]: false }));
-    }
-  };
+  const runAgent = (id) => runAnalysis(id, () => api(`/agents/${id}`, {
+    method: "POST",
+    body: JSON.stringify({ preferences }),
+    timeout: 150000
+  }));
   const deleteReport = async (id) => {
     if (!id || reportAction) return;
     setReportAction(`delete-${id}`);
@@ -2474,7 +2452,7 @@ function AgentsPage({ preferences, setPage }) {
   };
   useEffect(() => {
     loadReports();
-  }, []);
+  }, [reportsVersion]);
   return (
     <main className="content">
       <div className="page-title compact">
@@ -2485,13 +2463,14 @@ function AgentsPage({ preferences, setPage }) {
         {agents.map((agent) => {
           const Icon = agent.icon;
           return (
-            <article className="agent-card" key={agent.id}>
+            <article className="agent-card" key={agent.id} aria-busy={Boolean(busyAgents[agent.id])}>
               <Icon size={28} />
               <h3>{agent.title}</h3>
               <p>{agent.desc}</p>
               <button disabled={Boolean(busyAgents[agent.id])} onClick={() => runAgent(agent.id)}>
                 {busyAgents[agent.id] ? "分析中..." : "开始分析"}
               </button>
+              {busyAgents[agent.id] && <p className="muted" role="status">分析正在进行，可切换其他页面，返回后查看结果。</p>}
               {outputs[agent.id] && (
                 <div className={`agent-output${outputs[agent.id].error ? " error" : ""}`} role={outputs[agent.id].error ? "alert" : undefined}>
                   {outputs[agent.id].text}

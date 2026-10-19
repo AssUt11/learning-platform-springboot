@@ -11,7 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class PageControllerTest {
     @ParameterizedTest
-    @ValueSource(strings = {"/home", "/course/1", "/learn/1/2"})
+    @ValueSource(strings = {"/home", "/course/1", "/learn/1/2", "/chat"})
     void directPageLinksServeTheFrontend(String path) throws Exception {
         MockMvcBuilders.standaloneSetup(new PageController()).build()
                 .perform(get(path))

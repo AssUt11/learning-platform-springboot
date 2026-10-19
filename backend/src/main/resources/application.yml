@@ -13,6 +13,8 @@ spring:
       max-request-size: 200MB
 
 app:
+  catalog:
+    seed-teacher-id: ${CATALOG_SEED_TEACHER_ID:0}
   upload-dir: ${APP_UPLOAD_DIR:D:/project/learning-platform-springboot/backend/uploads}
   report-dir: ${APP_REPORT_DIR:D:/project/learning-platform-springboot/backend/reports}
   cors:
@@ -34,12 +36,22 @@ app:
     failure-cooldown-ms: ${NEO4J_FAILURE_COOLDOWN_MS:10000}
   ai:
     enabled: ${AI_TUTOR_ENABLED:false}
+    provider: ${AI_PROVIDER:ollama}
     max-concurrent: ${AI_MAX_CONCURRENT:1}
     max-queue: ${AI_MAX_QUEUE:5}
     message-max-chars: ${AI_MESSAGE_MAX_CHARS:1000}
     context-max-chars: ${AI_CONTEXT_MAX_CHARS:3500}
     rate-limit-per-minute: ${AI_RATE_LIMIT_PER_MINUTE:10}
     stream-timeout-ms: ${AI_STREAM_TIMEOUT_MS:150000}
+    llama-factory:
+      tool-calling-enabled: ${LLAMAFACTORY_TOOL_CALLING_ENABLED:false}
+      base-url: ${LLAMAFACTORY_BASE_URL:http://127.0.0.1:8000/v1}
+      model: ${LLAMAFACTORY_MODEL:zhidu-qwen3-4b-lora}
+      api-key: ${LLAMAFACTORY_API_KEY:}
+      connect-timeout-ms: ${LLAMAFACTORY_CONNECT_TIMEOUT_MS:3000}
+      response-timeout-ms: ${LLAMAFACTORY_RESPONSE_TIMEOUT_MS:120000}
+      max-tokens: ${LLAMAFACTORY_MAX_TOKENS:600}
+      context-window: ${LLAMAFACTORY_CONTEXT_WINDOW:4096}
     ollama:
       base-url: ${OLLAMA_BASE_URL:http://127.0.0.1:11434}
       model: ${OLLAMA_MODEL:qwen3:8b-q4_K_M}
