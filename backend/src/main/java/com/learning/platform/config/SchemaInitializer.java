@@ -2,6 +2,7 @@ package com.learning.platform.config;
 
 import com.learning.platform.service.LegacyCourseMigrationService;
 import com.learning.platform.service.DemoCourseInitializerService;
+import com.learning.platform.service.FoundationCourseInitializerService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.dao.DataAccessException;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,6 +17,7 @@ public class SchemaInitializer {
     private final JdbcTemplate jdbcTemplate;
     private final LegacyCourseMigrationService legacyCourseMigrationService;
     private final DemoCourseInitializerService demoCourseInitializerService;
+    private final FoundationCourseInitializerService foundationCourses;
     private final String adminEmail;
     private final String adminPassword;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
@@ -23,11 +25,13 @@ public class SchemaInitializer {
     public SchemaInitializer(JdbcTemplate jdbcTemplate,
                              LegacyCourseMigrationService legacyCourseMigrationService,
                              DemoCourseInitializerService demoCourseInitializerService,
+                             FoundationCourseInitializerService foundationCourses,
                              @Value("${app.auth.admin-email}") String adminEmail,
                              @Value("${app.auth.admin-password}") String adminPassword) {
         this.jdbcTemplate = jdbcTemplate;
         this.legacyCourseMigrationService = legacyCourseMigrationService;
         this.demoCourseInitializerService = demoCourseInitializerService;
+        this.foundationCourses = foundationCourses;
         this.adminEmail = adminEmail == null ? "" : adminEmail.trim().toLowerCase();
         this.adminPassword = adminPassword == null ? "" : adminPassword;
     }
@@ -44,6 +48,7 @@ public class SchemaInitializer {
         backfillStructuredCatalog();
         legacyCourseMigrationService.migrateAll();
         demoCourseInitializerService.ensureDemoCourse();
+        foundationCourses.ensureCourses();
     }
 
     private void createTables() {

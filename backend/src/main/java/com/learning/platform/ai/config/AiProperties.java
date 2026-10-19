@@ -7,6 +7,8 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "app.ai")
 public class AiProperties {
     private boolean enabled = false;
+    private String provider = "ollama";
+    private LlamaFactory llamaFactory = new LlamaFactory();
     private int maxConcurrent = 1;
     private int maxQueue = 5;
     private int messageMaxChars = 1000;
@@ -16,6 +18,10 @@ public class AiProperties {
     private Ollama ollama = new Ollama();
 
     public boolean isEnabled() { return enabled; }
+    public String getProvider() { return provider; }
+    public void setProvider(String provider) { this.provider = provider; }
+    public LlamaFactory getLlamaFactory() { return llamaFactory; }
+    public void setLlamaFactory(LlamaFactory value) { this.llamaFactory = value == null ? new LlamaFactory() : value; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
     public int getMaxConcurrent() { return maxConcurrent; }
     public void setMaxConcurrent(int maxConcurrent) { this.maxConcurrent = maxConcurrent; }
@@ -31,6 +37,34 @@ public class AiProperties {
     public void setStreamTimeoutMs(long streamTimeoutMs) { this.streamTimeoutMs = streamTimeoutMs; }
     public Ollama getOllama() { return ollama; }
     public void setOllama(Ollama ollama) { this.ollama = ollama == null ? new Ollama() : ollama; }
+
+    public static class LlamaFactory {
+        private boolean toolCallingEnabled = false;
+        private String baseUrl = "http://127.0.0.1:8000/v1";
+        private String model = "zhidu-qwen3-4b-lora";
+        private String apiKey = "";
+        private long connectTimeoutMs = 3000L;
+        private long responseTimeoutMs = 120000L;
+        private int maxTokens = 600;
+        private int contextWindow = 4096;
+
+        public String getBaseUrl() { return baseUrl; }
+        public boolean isToolCallingEnabled() { return toolCallingEnabled; }
+        public void setToolCallingEnabled(boolean value) { toolCallingEnabled = value; }
+        public void setBaseUrl(String value) { baseUrl = value; }
+        public String getModel() { return model; }
+        public void setModel(String value) { model = value; }
+        public String getApiKey() { return apiKey; }
+        public void setApiKey(String value) { apiKey = value; }
+        public long getConnectTimeoutMs() { return connectTimeoutMs; }
+        public void setConnectTimeoutMs(long value) { connectTimeoutMs = value; }
+        public long getResponseTimeoutMs() { return responseTimeoutMs; }
+        public void setResponseTimeoutMs(long value) { responseTimeoutMs = value; }
+        public int getMaxTokens() { return maxTokens; }
+        public void setMaxTokens(int value) { maxTokens = value; }
+        public int getContextWindow() { return contextWindow; }
+        public void setContextWindow(int value) { contextWindow = value; }
+    }
 
     public static class Ollama {
         private String baseUrl = "http://127.0.0.1:11434";

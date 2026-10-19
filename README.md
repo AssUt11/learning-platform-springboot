@@ -4,6 +4,8 @@
 
 ## 目录结构
 
+项目版本演进见 [迭代记录](CHANGELOG.md)，每轮更新的详细差异保留在 GitHub 提交与 PR 中。
+
 - `backend`：Spring Boot 后端
 - `frontend/src/api`：分类、课程、图谱、学习和分析接口模块
 - `frontend/src/components`：导航、搜索、分类和课程卡片组件
@@ -11,8 +13,13 @@
 - `database/navicat_mysql.sql`：基础 MySQL 初始化脚本；后端启动时补齐新增表
 - `database/catalog_phase1.sql`：第一阶段分类、方向增量脚本
 - `database/course_community.sql`：课程问答、笔记、评价、教师回复和审核治理增量脚本
+- `database/agent_chat.sql`：Agent 对话会话、消息的增量建表脚本；后端启动时也会自动创建
+- [课程扩充与 Neo4j 同步](docs/课程扩充与Neo4j同步.md)：考研 10 门、技术方向 20 门基础图文课，课程图谱同步与验证
 - [个人学习路径图谱与启动排查](docs/个人学习路径图谱与启动排查-2026-09-20.md)：路径保存、图谱同步、启动排查与验证范围
-- [AI 伴学实施文档](docs/langchain4j/README.md)：LangChain4j 迁移方案和待执行的阶段任务；当前运行实现仍直接调用 Ollama
+- [AI 伴学实施文档](docs/langchain4j/README.md)：LangChain4j 迁移方案和待执行的阶段任务；当前运行实现支持 Ollama / LLaMA-Factory API
+- [LLaMA-Factory 微调模型接入](docs/LLaMA-Factory微调模型接入.md)：基础模型与 LoRA 加载、本机启动、后端切换和验证说明
+- [Agent 对话功能](docs/Agent对话功能.md)：独立微调模型聊天、多轮追问、会话历史、接口与验证方式
+- [全链路联调记录](docs/全链路联调记录-2026-10-16.md)：隔离 MySQL、Neo4j 与真实微调模型的业务验证结果
 
 ## 三端能力
 
@@ -22,9 +29,11 @@
 
 课程卡片会进入独立的 `/course/{id}` 学习页；只有 `review_status=approved` 且已上架的课程会显示在学生端。
 
+学生和教师顶部导航的“消息”后提供“Agent 对话”，可直接与 LLaMA-Factory 微调模型连续聊天，历史按账号保存。需要启用 `llamafactory` 启动配置，并保持模型 API 运行。
+
 ## 本地启动
 
-需要 Java 17、Maven 3.9、Node.js 18.19+（含 npm）和 MySQL 8。AI 与实时图谱另需 Ollama 和 Neo4j。克隆项目后先在 `frontend` 目录执行 `npm ci` 安装锁定版本的依赖。
+需要 Java 17、Maven 3.9、Node.js 18.19+（含 npm）和 MySQL 8。AI 另需 Ollama 或 LLaMA-Factory 模型服务，实时图谱另需 Neo4j。克隆项目后先在 `frontend` 目录执行 `npm ci` 安装锁定版本的依赖。
 
 1. 创建空的 `learning_platform` 数据库；后端启动时会自动增量建表和补齐数据。
 2. 检查 `backend/src/main/resources/application.yml` 中的 MySQL 和 Neo4j 配置。
@@ -117,7 +126,7 @@ Neo4j 不可用时页面会显示备用分类图谱；连接恢复后刷新页�
 
 个人路径流程：进入“AI 学伴” → “学习路径分析” → “查看我的路径图谱”。直接打开“智慧图谱”会显示当前学生最新保存的路径，也可切换到公共知识图谱。Neo4j 离线时路径保存在 MySQL，页面提供重试同步入口。
 
-生成路径前安装 Ollama 模型，并设置 `AI_TUTOR_ENABLED=true`、`OLLAMA_BASE_URL`、`OLLAMA_MODEL` 及正确的 `NEO4J_*` 环境变量后重启后端。默认模型为 `qwen3:8b-q4_K_M`。真实模型输出质量和真实 Neo4j 写入仍需在对应服务启用后验收，已有测试覆盖结构校验、离线保存和用户隔离。
+生成路径前配置模型服务和正确的 `NEO4J_*` 环境变量后重启后端。Ollama 模式需安装模型并设置 `AI_TUTOR_ENABLED=true`、`OLLAMA_BASE_URL`、`OLLAMA_MODEL`，默认模型为 `qwen3:8b-q4_K_M`；使用本机微调模型请按 [LLaMA-Factory 接入说明](docs/LLaMA-Factory微调模型接入.md)启动。真实模型输出质量和真实 Neo4j 写入仍需在对应服务启用后验收，已有测试覆盖结构校验、离线保存和用户隔离。
 
 ## Docker Compose
 

@@ -1,4 +1,7 @@
+import { clearAgentAnalysisSession } from "./agentAnalysisStore";
+
 export function clearAuthStorage() {
+  clearAgentAnalysisSession();
   localStorage.removeItem("learning_user");
   localStorage.removeItem("learning_token");
   localStorage.removeItem("learning_preferences");
