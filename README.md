@@ -4,6 +4,8 @@
 
 ## 目录结构
 
+项目版本演进见 [迭代记录](CHANGELOG.md)，每轮更新的详细差异保留在 GitHub 提交与 PR 中。
+
 - `backend`：Spring Boot 后端
 - `frontend/src/api`：分类、课程、图谱、学习和分析接口模块
 - `frontend/src/components`：导航、搜索、分类和课程卡片组件
