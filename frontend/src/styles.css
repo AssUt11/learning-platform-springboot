@@ -1059,7 +1059,7 @@ textarea:focus {
   touch-action: none;
 }
 
-.graph-canvas svg {
+.graph-stage > svg {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -6865,12 +6865,7 @@ textarea:focus-visible {
   outline-offset: 2px;
 }
 
-::view-transition-old(root) { animation: route-fade-out .12s ease both; }
-::view-transition-new(root) { animation: route-fade-in .22s cubic-bezier(.2, .75, .25, 1) both; }
-
-@keyframes route-fade-out {
-  to { opacity: .72; transform: translateY(-2px); }
-}
+.app-shell > main { animation: route-fade-in .22s cubic-bezier(.2, .75, .25, 1); }
 
 @keyframes route-fade-in {
   from { opacity: 0; transform: translateY(7px); }
@@ -7113,8 +7108,7 @@ textarea:focus-visible {
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
   }
-  ::view-transition-old(root),
-  ::view-transition-new(root) { animation: none; }
+  .app-shell > main { animation: none; }
 }
 
 .learning-graph-tabs { display:flex; gap:10px; padding:20px 5% 0; }
@@ -7230,3 +7224,40 @@ textarea:focus-visible {
   .agent-chat-welcome h2 { font-size: 19px; }
   .agent-chat-message > section { max-width: 85%; }
 }
+/* 教师编排、课后练习与自适应建议统一使用浅色面板，避免继承学习播放器的深色表单。 */
+.course-structure-editor, .practice-panel { background: #fff; color: #172b4d; border: 1px solid #d6e1ef; border-radius: 18px; padding: 24px; margin: 24px 0; scroll-margin-top: 130px; }
+.course-structure-editor > header, .practice-panel > header, .adaptive-next-action { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.course-structure-editor h2, .practice-panel h2 { color: #172b4d; font-size: 22px; margin: 8px 0; }
+.course-structure-editor p, .practice-panel p { line-height: 1.8; }
+.course-structure-editor fieldset { border: 0; padding: 0; min-width: 0; }
+.course-structure-editor label { display: grid; gap: 7px; color: #334b6d; font-size: 14px; }
+.course-structure-editor input, .course-structure-editor select, .course-structure-editor textarea { width: 100%; padding: 10px 12px; border: 1px solid #b7c7db; border-radius: 8px; background: #fff; color: #172b4d; box-sizing: border-box; }
+.course-structure-editor textarea { min-height: 110px; resize: vertical; margin-bottom: 10px; }
+.course-structure-editor button, .practice-panel button:not(.primary-btn) { display: inline-flex; align-items: center; justify-content: center; gap: 7px; background: #edf4ff; border: 1px solid #b7ccec; color: #1e4e9b; border-radius: 9px; padding: 9px 13px; cursor: pointer; }
+.course-structure-editor button:disabled, .practice-panel button:disabled { cursor: not-allowed; opacity: .55; }
+.structure-chapter { border: 1px solid #d7e1ef; padding: 18px; margin: 18px 0; border-radius: 12px; background: #f7faff; }
+.structure-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; margin: 12px 0; }
+.structure-row label { flex: 1 1 200px; }
+.structure-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0; }
+.structure-lesson { background: #fff; border-left: 3px solid #95bafa; padding: 14px; margin: 16px 0; border-radius: 8px; }
+.structure-asset { padding: 12px; border: 1px solid #dbe5f1; border-radius: 8px; margin: 10px 0; }
+.structure-asset summary { cursor: pointer; margin-bottom: 10px; }
+.structure-upload { background: #f4f8ff; padding: 14px; border-radius: 10px; }
+.structure-upload label { margin: 10px 0; }
+.practice-panel .eyebrow { display: inline-flex; align-items: center; gap: 7px; color: #2559af; }
+.practice-panel > p, .practice-panel > small { color: #47607f; }
+.practice-panel > small { display: block; margin-top: 18px; line-height: 1.7; }
+.practice-meta { display: flex; flex-wrap: wrap; gap: 16px; color: #526786; font-size: 13px; margin: 18px 0; overflow-wrap: anywhere; }
+.practice-panel fieldset { border: 1px solid #d3e0f0; background: #f8fbff; border-radius: 12px; margin: 18px 0; padding: 18px; min-width: 0; }
+.practice-panel legend { font-weight: 700; color: #172b4d; line-height: 1.7; padding: 0 8px; }
+.practice-option { display: flex; align-items: baseline; gap: 10px; padding: 10px; border-radius: 8px; color: #253f62; cursor: pointer; }
+.practice-option:has(input:checked) { background: #e1edff; }
+.practice-option input { width: 16px; height: 16px; min-height: 16px; padding: 0; margin: 0; flex: 0 0 16px; align-self: center; accent-color: #2563eb; }
+.practice-explanation { color: #214f83; border-top: 1px solid #ccdaee; padding-top: 12px; }
+.practice-result { display: flex; align-items: start; gap: 12px; padding: 18px; border-radius: 12px; background: #ecf8f3; color: #175e4a; }
+.practice-result button { margin: 6px 10px 0 0; }
+.adaptive-next-action { background: #edf6ff; border: 1px solid #c3d9f4; border-radius: 14px; padding: 20px 24px; margin: 20px 0; color: #1e426a; }
+.adaptive-next-action h3 { margin: 8px 0; }
+.adaptive-next-action p { margin: 0; line-height: 1.8; }
+.adaptive-step-state { padding: 14px; border-radius: 10px; background: #edf6ff; margin: 16px 0; color: #254c7b; }
+@media (max-width: 700px) { .course-structure-editor, .practice-panel { padding: 16px; } .structure-chapter { padding: 10px; } .structure-lesson { padding: 10px; } .structure-row > button { width: 100%; } }

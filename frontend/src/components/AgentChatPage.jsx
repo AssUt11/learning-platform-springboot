@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Bot, Check, ChevronRight, MessageSquare, Plus, Send, Sparkles, Square, UserRound } from "lucide-react";
 import { cancelAgentChat, getAgentChatStatus, getAgentConversation, getAgentConversations, streamAgentChat } from "../api/agentChat";
 import { isAuthExpiredError, notifyUnauthorized } from "../utils/auth";
+import InkResponse from "./InkResponse";
+import useTranscriptScroll from "../utils/useTranscriptScroll";
 
 const suggestions = ["帮我解释一个难懂的知识点", "如何制定一周学习计划？", "用一个例子解释数据库索引"];
 
@@ -21,7 +23,7 @@ export default function AgentChatPage({ user, active }) {
   const abort = useRef(null);
   const complete = useRef(false);
   const cancelled = useRef(false);
-  const bottom = useRef(null);
+  const transcript = useTranscriptScroll(active);
   const selection = useRef(0);
   const draftKey = `learning_agent_chat_selected:${user.id}`;
 
@@ -43,6 +45,7 @@ export default function AgentChatPage({ user, active }) {
       if (!mounted.current || version !== selection.current) return;
       setConversationId(data.id);
       setMessages(Array.isArray(data.messages) ? data.messages : []);
+      transcript.followLatest();
       try { sessionStorage.setItem(draftKey, String(data.id)); } catch { /* Optional navigation memory. */ }
     } catch (cause) { if (version === selection.current) showError(cause); }
     finally { if (mounted.current && version === selection.current) setLoading(false); }
@@ -67,10 +70,6 @@ export default function AgentChatPage({ user, active }) {
     };
   }, []);
 
-  useEffect(() => {
-    if (active) bottom.current?.scrollIntoView({ block: "nearest" });
-  }, [messages, active]);
-
   const updateAssistant = patch => setMessages(current => {
     const next = [...current];
     const index = next.findLastIndex(item => item.role === "assistant");
@@ -81,6 +80,7 @@ export default function AgentChatPage({ user, active }) {
     if (running.current) return;
     ++selection.current;
     setConversationId(null); setMessages([]); setInput(""); setError(""); setLoading(false);
+    transcript.followLatest();
     try { sessionStorage.removeItem(draftKey); } catch { /* Optional navigation memory. */ }
   };
   const send = async event => {
@@ -93,6 +93,7 @@ export default function AgentChatPage({ user, active }) {
     requestId.current = null;
     const controller = new AbortController();
     abort.current = controller;
+    transcript.followLatest();
     setStreaming(true); setError(""); setInput("");
     setMessages(current => [...current, { role: "user", content: question, status: "completed" },
       { role: "assistant", content: "", status: "queued" }]);
@@ -100,7 +101,7 @@ export default function AgentChatPage({ user, active }) {
       await streamAgentChat({ conversationId, message: question }, {
         signal: controller.signal,
         onEvent: (name, data) => {
-          if (!mounted.current) return;
+          if (!mounted.current || cancelled.current) return;
           if (name === "conversation.created") {
             requestId.current = data.requestId;
             setConversationId(data.conversationId);
@@ -165,17 +166,20 @@ export default function AgentChatPage({ user, active }) {
         <section className="agent-chat-main" aria-label="Agent 对话窗口">
           <header><div className="agent-chat-avatar"><Bot size={23} /></div><div><strong>知度 Agent</strong><span>可以连续追问，也可以从一个新问题开始</span></div>
             <small className={connection?.available ? "online" : ""}>{connection?.available ? <><Check size={13} />已连接微调模型</> : connection ? "模型未连接" : "正在检查连接"}</small></header>
-          <div className="agent-chat-transcript" aria-live="polite" aria-busy={loading || streaming}>
+          <div className="agent-chat-transcript" ref={transcript.viewportRef} onScroll={transcript.onScroll} aria-live="polite" aria-busy={loading || streaming}>
+            <div className="agent-chat-transcript-body" ref={transcript.contentRef}>
+            {/* 消息只追加；流式返回数据库 ID 时仍保留同一行，避免重挂载造成闪动。 */}
             {loading ? <p className="agent-chat-loading">正在加载对话…</p> : messages.length ? messages.map((message, index) => (
-              <article className={`agent-chat-message ${message.role}`} key={message.id || `${message.role}-${index}`}>
+              <article className={`agent-chat-message ${message.role}`} key={`${message.role}-${index}`}>
                 <div className="agent-chat-avatar">{message.role === "assistant" ? <Bot size={19} /> : <UserRound size={19} />}</div>
                 <section><strong>{message.role === "assistant" ? "知度 Agent" : "我"}</strong>
-                  <p>{message.content || (["queued", "generating"].includes(message.status) && streaming ? "正在组织回答…" : message.status === "cancelled" ? "本次回答已停止。" : "本次回答未完成，请重新提问。")}</p>
+                  {message.role === "assistant" ? <InkResponse content={message.content} generating={["queued", "generating"].includes(message.status) && streaming} status={message.status}
+                    emptyMessage={message.status === "cancelled" ? "本次回答已停止。" : "本次回答未完成，请重新提问。"} /> : <p>{message.content}</p>}
                   {message.status === "cancelled" && message.content && <small>已停止生成</small>}
                 </section>
               </article>
             )) : <div className="agent-chat-welcome"><span><Sparkles size={30} /></span><h2>你好，有什么想一起探讨的？</h2><p>一个概念、一段思路，或下一步的学习计划。<br />把问题交给我，我们一步一步聊清楚。</p><div>{suggestions.map(text => <button key={text} onClick={() => setInput(text)}>{text}<ChevronRight size={15} /></button>)}</div></div>}
-            <div ref={bottom} />
+            </div>
           </div>
           <div className="agent-chat-compose">
             {(error || (connection && !connection.available)) && <p className="agent-chat-error" role="alert">{error || connection.message || "模型服务暂不可用。"}</p>}

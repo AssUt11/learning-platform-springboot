@@ -397,7 +397,7 @@ public class KnowledgeController {
                                     + "UNWIND $nodes AS row "
                                     + "MERGE (n:KnowledgeNode {key: row.key}) "
                                     + "SET n.title = row.title, n.name = row.title, n.code = row.code, "
-                                    + "    n.level = row.level, n.description = row.description, "
+                                    + "    n.level = row.level, n.description = row.description, n.learningStage = row.learningStage, "
                                     + "    n.path = row.path, n.source = 'learning-platform'",
                             Values.parameters("nodes", nodes))).consume();
                     transaction.run(new Query(""
@@ -436,6 +436,7 @@ public class KnowledgeController {
             node.put("level", number(item.get("level"), names.size()));
             node.put("description", text(item.get("description")));
             node.put("path", String.join(" > ", names));
+            node.put("learningStage", item.getOrDefault("learningStage", ""));
             nodes.add(node);
 
             if (parentKey.length() > 0) {
@@ -464,6 +465,7 @@ public class KnowledgeController {
         node.put("subject", nodeText(source, "subject", "category"));
         node.put("type", nodeType(source, subject));
         node.put("labels", labels(source));
+        if (source.containsKey("learningStage") && !source.get("learningStage").isNull()) node.put("learningStage", source.get("learningStage").asString());
         if (source.containsKey("level") && !source.get("level").isNull()) {
             node.put("level", source.get("level").asInt());
         }

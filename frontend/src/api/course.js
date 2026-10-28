@@ -40,7 +40,8 @@ export const reorderCourseLessons = (chapterId, ids) => request(`/teacher/chapte
 });
 export const createLessonAsset = (lessonId, formData) => request(`/teacher/lessons/${lessonId}/assets`, {
   method: "POST",
-  body: formData
+  body: formData,
+  timeout: 180000
 });
 export const updateLessonAsset = (lessonId, assetId, asset) => request(`/teacher/lessons/${lessonId}/assets/${assetId}`, {
   method: "PUT",

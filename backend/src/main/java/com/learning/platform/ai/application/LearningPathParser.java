@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.learning.platform.exception.BusinessException;
 import com.learning.platform.pattern.RecommendationContext;
+import com.learning.platform.service.LearningStages;
 import java.util.*;
 
 /** Converts the model's structured plan into the same steps used by text and graph views. */
@@ -18,8 +19,12 @@ public final class LearningPathParser {
             if (!steps.isArray() || steps.isEmpty() || steps.size() > 5) throw new IllegalArgumentException();
             List<Map<String, Object>> nodes = new ArrayList<>();
             Set<Long> courseIds = new HashSet<>();
+            Map<Long, Map<String, Object>> courses = new HashMap<>();
             if (context.getResources() != null) context.getResources().stream().limit(8).forEach(course -> {
-                if (course.get("id") instanceof Number) courseIds.add(((Number) course.get("id")).longValue());
+                if (course.get("id") instanceof Number) {
+                    long id = ((Number) course.get("id")).longValue();
+                    courseIds.add(id); courses.put(id, course);
+                }
             });
             for (JsonNode step : steps) {
                 Map<String, Object> node = new LinkedHashMap<>();
@@ -34,6 +39,13 @@ public final class LearningPathParser {
                     }
                     node.put("courseId", step.get("courseId").longValue());
                 }
+                Map<String, Object> course = courses.getOrDefault(node.get("courseId"), Map.of());
+                String stage = Objects.toString(course.get("learningStage"), step.path("stage").asText(""));
+                if (!LearningStages.CODES.contains(stage)) stage = LearningStages.infer(node.get("title"), "");
+                node.put("stage", stage); node.put("stageLabel", LearningStages.label(stage));
+                node.put("reason", step.path("reason").asText("根据学习目标、实际进度与先修关系安排。").substring(0,
+                        Math.min(300, step.path("reason").asText("根据学习目标、实际进度与先修关系安排。").length())));
+                if (course.get("minutes") instanceof Number) node.put("estimatedMinutes", course.get("minutes"));
                 nodes.add(node);
             }
             List<Map<String, Object>> links = new ArrayList<>();

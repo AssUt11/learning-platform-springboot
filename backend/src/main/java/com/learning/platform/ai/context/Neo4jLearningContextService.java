@@ -135,7 +135,7 @@ public class Neo4jLearningContextService {
                 tx.run(new Query("""
                         UNWIND $taxonomy AS row MERGE (n:KnowledgeNode {key:row.key})
                         SET n.title=row.title,n.name=row.title,n.code=row.code,n.level=row.level,
-                            n.description=row.description,n.path=row.path,n.source='learning-platform'
+                            n.description=row.description,n.path=row.path,n.learningStage=row.learningStage,n.source='learning-platform'
                         """, payload)).consume();
                 tx.run(new Query("""
                         UNWIND $taxonomy AS row WITH row WHERE row.parentKey <> ''
@@ -148,7 +148,7 @@ public class Neo4jLearningContextService {
                 tx.run(new Query("""
                         UNWIND $courses AS row MERGE (c:Course {mysqlId:row.courseId})
                         SET c.publicCourseId=row.publicCourseId,c.title=row.title,c.subject=row.subject,
-                            c.description=row.description,c.published=row.published,c.source='learning-platform',c.syncedAt=datetime()
+                            c.description=row.description,c.published=row.published,c.learningStage=row.learningStage,c.source='learning-platform',c.syncedAt=datetime()
                         WITH c,row MATCH (d:KnowledgeNode {key:row.directionKey})
                         MERGE (d)-[r:HAS_COURSE]->(c) SET r.managedBy='catalog-sync'
                         """, payload)).consume();
@@ -317,7 +317,7 @@ public class Neo4jLearningContextService {
                         + "WITH p UNWIND $nodes AS row "
                         + "MERGE (s:StudentLearningPathStep {pathId:$pathId,stepId:row.id}) "
                         + "SET s.userId=$userId,s.title=row.title,s.stepOrder=row.order,s.goal=row.goal,"
-                        + "s.completionCriteria=row.completionCriteria,s.courseId=row.courseId "
+                        + "s.completionCriteria=row.completionCriteria,s.courseId=row.courseId,s.stage=row.stage "
                         + "MERGE (p)-[:HAS_STEP]->(s)",
                         Values.parameters("pathId", pathId, "userId", userId, "title", title, "snapshot", snapshot, "nodes", nodes)).consume();
                 tx.run("MATCH (p:StudentLearningPath {pathId:$pathId,userId:$userId})-[:HAS_STEP]->(a) "

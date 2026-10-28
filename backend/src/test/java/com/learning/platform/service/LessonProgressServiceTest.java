@@ -58,16 +58,16 @@ class LessonProgressServiceTest {
     }
 
     @Test
-    void nearEndVideoPositionMarksLessonComplete() {
+    void videoBelowOneHundredPercentRemainsInProgress() {
         stubLesson(102L, "video", 100);
-        stubSaved(102L, 92, 100, 100, 1);
+        stubSaved(102L, 92, 100, 92, 0);
 
         LessonProgressView result = service.save(15L, 102L, request(7L, 92, 9999, "pause"));
 
-        assertTrue(result.isCompleted());
-        assertEquals(100, result.getProgressPercent());
+        assertFalse(result.isCompleted());
+        assertEquals(92, result.getProgressPercent());
         verify(jdbcTemplate).update(contains("insert into lesson_progress"),
-                eq(15L), eq(102L), eq(92), eq(100), eq(100), eq(1));
+                eq(15L), eq(102L), eq(92), eq(100), eq(92), eq(0));
     }
 
     @Test
@@ -91,6 +91,37 @@ class LessonProgressServiceTest {
         assertTrue(result.isCompleted());
         verify(jdbcTemplate).update(contains("insert into lesson_progress"),
                 eq(15L), eq(104L), eq(1), eq(1), eq(100), eq(1));
+    }
+
+    @Test
+    void actualReadingCanStartProgressButCannotMarkACompletedLesson() {
+        stubLesson(104L, "article", 0);
+        stubSaved(104L, 0, 1, 99, 0);
+        LessonProgressRequest reading = request(7L, 1, 1, "reading");
+        reading.setReadingProgressPercent(100);
+        LessonProgressView result = service.save(15L, 104L, reading);
+        assertFalse(result.isCompleted());
+        assertEquals(99, result.getProgressPercent());
+        verify(jdbcTemplate).update(contains("insert into lesson_progress"),
+                eq(15L), eq(104L), eq(0), eq(1), eq(99), eq(0));
+    }
+
+    @Test
+    void enteringAnArticleDoesNotCreateLearningProgress() {
+        stubLesson(104L, "article", 0);
+        stubSaved(104L, 0, 1, 0, 0);
+        service.save(15L, 104L, request(7L, 1, 1, "heartbeat"));
+        verify(jdbcTemplate).update(contains("insert into lesson_progress"),
+                eq(15L), eq(104L), eq(0), eq(1), eq(0), eq(0));
+    }
+
+    @Test
+    void firstPlayedSecondOfALongVideoCountsAsActualStudy() {
+        stubLesson(105L, "video", 3600);
+        stubSaved(105L, 1, 3600, 1, 0);
+        service.save(15L, 105L, request(7L, 1, 3600, "heartbeat"));
+        verify(jdbcTemplate).update(contains("insert into lesson_progress"),
+                eq(15L), eq(105L), eq(1), eq(3600), eq(1), eq(0));
     }
 
     @Test
@@ -140,6 +171,15 @@ class LessonProgressServiceTest {
         assertEquals(7L, result.getCourseId());
         assertEquals(102L, result.getLessonId());
         assertEquals(61, result.getLastPositionSeconds());
+    }
+
+    @Test
+    void roundedCourseAverageCannotReachOneHundredWithAnUnfinishedLesson() {
+        when(jdbcTemplate.queryForList(contains("left join lesson_progress"), eq(15L), eq(7L)))
+                .thenReturn(rows(
+                        row("lessonId", 101L, "progressPercent", 100, "completed", 1),
+                        row("lessonId", 102L, "progressPercent", 99, "completed", 0)));
+        assertEquals(99, service.courseProgress(15L, 7L).getProgressPercent());
     }
 
     private void stubLesson(long lessonId, String lessonType, int duration) {

@@ -84,12 +84,14 @@ public class CatalogGraphSyncService {
         nodes.forEach(node -> keys.put(String.valueOf(node.get("path")),String.valueOf(node.get("key"))));
         List<Map<String,Object>> courses=jdbc.queryForList("""
                 select c.id courseId,r.id publicCourseId,r.title,r.subject,coalesce(r.description,'') description,
-                  r.status,r.review_status reviewStatus,coalesce(cat.name,'') categoryName,coalesce(d.name,r.subject) directionName
+                  r.status,r.review_status reviewStatus,coalesce(cat.name,'') categoryName,coalesce(d.name,r.subject) directionName,s.stage_code learningStage
                 from resources r join courses c on c.legacy_resource_id=r.id
-                left join categories cat on cat.id=r.category_id left join directions d on d.id=r.direction_id order by r.id
+                left join categories cat on cat.id=r.category_id left join directions d on d.id=r.direction_id
+                left join course_learning_stages s on s.resource_id=r.id order by r.id
                 """);
         List<Map<String,Object>> chapters=new ArrayList<>(),lessons=new ArrayList<>(),topics=new ArrayList<>();
         for (Map<String,Object> course:courses) {
+            if (course.get("learningStage")==null) course.put("learningStage",LearningStages.infer(course.get("title"),""));
             Object courseId=course.get("courseId");
             String directionPath=course.get("categoryName")+" > "+course.get("directionName");
             course.put("directionKey",keys.getOrDefault(directionPath,""));

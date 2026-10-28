@@ -1,0 +1,37 @@
+/* 动画仅改变透明度与轻微虚化，不改变字距、字号、行高或容器位置。 */
+.ink-response {
+  min-height: 106px; min-width: 0; margin-top: 6px; padding: 13px 16px 16px;
+  border: 1px solid #dce1eb; border-radius: 4px 14px 14px;
+  background: #fcfcfd; color: var(--paper-ink, #253247);
+  isolation: isolate; overflow-wrap: anywhere;
+}
+.generation-status { color: #59677e; font-size: 12px; line-height: 1.6; }
+.generation-status-line { display: flex; align-items: center; gap: 9px; min-height: 24px; }
+.generation-status-line > span:last-child { min-width: 0; }
+.generation-ink-mark { position: relative; display: inline-block; flex: 0 0 22px; width: 22px; height: 22px; }
+.generation-ink-mark i { position: absolute; inset: 5px; border-radius: 46% 54% 56% 44%; background: #6670a0; opacity: .24; }
+.generation-ink-mark i:nth-child(2) { inset: 3px; background: #9098b5; opacity: .12; }
+.generation-ink-mark i:nth-child(3) { inset: 0; border: 1px solid #7e88aa; background: transparent; opacity: .2; }
+.generation-status.is-active .generation-ink-mark i { animation: ink-breathe 2.8s ease-in-out infinite; }
+.generation-status.is-active .generation-ink-mark i:nth-child(2) { animation-delay: -.9s; }
+.generation-status.is-active .generation-ink-mark i:nth-child(3) { animation-delay: -1.8s; }
+.generation-status.is-settled { color: #68758a; }
+.generation-status.is-settled .generation-ink-mark { opacity: .65; }
+.generation-status-detail { margin: 15px 0 0; color: #5f6e83; font-size: 13px; line-height: 1.85; }
+.agent-chat-message .ink-response .ink-response-copy,
+.ai-tutor-message .ink-response .ink-response-copy {
+  min-height: 2.1em; margin: 9px 0 0; padding: 0; border: 0; border-radius: 0;
+  background: transparent; color: #293b54; font-size: 14px; font-weight: 400;
+  line-height: 1.85; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.ink-arrival { animation: ink-arrive .38s ease-out both; }
+.practice-thinking { min-height: 98px; margin: 18px 0; padding: 15px 18px; border: 1px solid #dce1eb; border-radius: 12px; background: #f3f5fa; }
+.analysis-thinking { display: flex; flex-direction: column; justify-content: flex-start; }
+@keyframes ink-arrive {
+  from { opacity: .22; filter: blur(1.6px); }
+  to { opacity: 1; filter: blur(0); }
+}
+@keyframes ink-breathe { 0%, 100% { opacity: .16; } 50% { opacity: .5; } }
+@media (prefers-reduced-motion: reduce) {
+  .ink-arrival, .generation-status.is-active .generation-ink-mark i { animation: none !important; filter: none; }
+}

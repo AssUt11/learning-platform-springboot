@@ -1,7 +1,6 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { useRef } from "react";
-import { flushSync } from "react-dom";
 import {
   AlertTriangle,
   ArrowRight,
@@ -50,10 +49,22 @@ import request from "./utils/request";
 import { clearAuthStorage, handleActionError } from "./utils/auth";
 import useAgentAnalysis from "./utils/useAgentAnalysis";
 import AgentChatPage from "./components/AgentChatPage";
+import TeacherCourseEditor from "./components/TeacherCourseEditor";
+import GenerationStatus from "./components/GenerationStatus";
+import LearningPlanningPage from "./components/LearningPlanningPage";
+import LearningPlanSummary from "./components/LearningPlanSummary";
+import { getLearningProfile } from "./api/planning";
+import { LEARNING_STAGES, inferLearningStage, stageLabel } from "./utils/learningStages";
 import { getCategories, getKnowledgeCategoryTree } from "./api/category";
 import { addCourseNote, addCourseQuestion, deleteCourseNote, getCourseCommunity, getCourseDetail, getCourses, submitCourseReview } from "./api/course";
-import { getCourseLearningProgress, getLessonPlayback, getResumeLearning } from "./api/learning";
+import { getCourseLearningProgress, getKnowledgeProgress, getLessonPlayback, getResumeLearning } from "./api/learning";
+import { createKnowledgeProgress, knowledgeRecordForNode, knowledgeStatusLabel, summarizeKnowledgeProgress } from "./utils/knowledgeProgress";
+import { buildStageGraph, knowledgeLeavesForPath } from "./utils/stageGraph";
 import "./styles.css";
+import "./ui-surfaces.css";
+import "./ink-generation.css";
+import "./knowledge-progress.css";
+import "./learning-planning.css";
 
 const api = request;
 
@@ -178,6 +189,7 @@ function normalizeCategoryTree(items = []) {
     label: item.label || item.name || item.title,
     value: item.value || item.code || item.label || item.name || item.title,
     description: item.description,
+    learningStage: item.learningStage || inferLearningStage(item.label || item.name || item.title),
     children: Array.isArray(item.children) ? normalizeCategoryTree(item.children) : []
   })).filter((item) => item.label);
 }
@@ -285,6 +297,7 @@ function buildResourceTextContent(item) {
 const pagePaths = {
   auth: "/login",
   home: "/home",
+  planning: "/planning",
   catalog: "/catalog",
   graph: "/graph",
   learning: "/learning",
@@ -298,7 +311,7 @@ const pagePaths = {
   learn: "/learn"
 };
 
-const learnerPages = new Set(["home", "catalog", "graph", "learning", "agents", "messages", "chat", "course", "learn"]);
+const learnerPages = new Set(["home", "planning", "catalog", "graph", "learning", "agents", "messages", "chat", "course", "learn"]);
 const teacherPages = new Set([...learnerPages, "teacher"]);
 
 function pageFromPath(pathname) {
@@ -325,7 +338,7 @@ function defaultPageForUser(savedUser, setupPending, routePage = "") {
   if (!localStorage.getItem("learning_token")) return "auth";
     if (savedUser.role === "admin") return routePage === "course" ? "course" : "admin";
   if (savedUser.role === "teacher") return teacherPages.has(routePage) ? routePage : "home";
-  if (setupPending) return "interests";
+  if (setupPending) return "planning";
   return learnerPages.has(routePage) ? routePage : "home";
 }
 
@@ -370,6 +383,7 @@ function App() {
   const [graphSelection, setGraphSelection] = useState(() => ({ view: new URLSearchParams(window.location.search).get("view") || "path", pathId: new URLSearchParams(window.location.search).get("pathId") }));
   const [needsInterestSetup, setNeedsInterestSetup] = useState(() => localStorage.getItem("learning_needs_interest_setup") === "1");
   const [authNotice, setAuthNotice] = useState("");
+  const [planningChecked, setPlanningChecked] = useState(() => readStoredUser()?.role !== "student");
   const currentPathRef = useRef(window.location.pathname);
   const scrollPositionsRef = useRef(new Map());
   const scrollRestoreTokenRef = useRef(0);
@@ -405,6 +419,11 @@ function App() {
       if (selection.pathId) query.set("pathId", selection.pathId);
       path += `?${query}`;
     }
+    if (nextPage === "catalog" && options.learningStage) {
+      const query = new URLSearchParams({ stage: options.learningStage });
+      if (options.subject) query.set("subject", options.subject);
+      path += `?${query}`;
+    }
     const state = { page: nextPage, ...(courseId ? { courseId } : {}), ...(lessonId ? { lessonId } : {}) };
     if (options.replace) {
       window.history.replaceState(state, "", path);
@@ -428,25 +447,12 @@ function App() {
     const nextPath = updateBrowserHistory(resolved, { ...options, ...(resolved === "graph" ? { graphSelection: nextGraphSelection } : {}) });
     currentPathRef.current = nextPath;
 
-    const commitRoute = () => {
-      if (["course", "learn"].includes(resolved) && options.courseId) setSelectedCourseId(Number(options.courseId));
-      if (resolved === "learn" && options.lessonId) setSelectedLessonId(Number(options.lessonId));
-      if (resolved === "graph") setGraphSelection(nextGraphSelection);
-      setPageState(resolved);
-    };
-    const canTransition = typeof document.startViewTransition === "function"
-      && !options.replace
-      && !changingLessonInSameCourse;
-
-    if (canTransition) {
-      const transition = document.startViewTransition(() => flushSync(commitRoute));
-      if (!changingLessonInSameCourse) {
-        transition.updateCallbackDone.then(() => scheduleScrollRestore(0), () => scheduleScrollRestore(0));
-      }
-    } else {
-      commitRoute();
-      if (!changingLessonInSameCourse) scheduleScrollRestore(0);
-    }
+    // Route content must update even when browser transition callbacks are unavailable or stalled.
+    if (["course", "learn"].includes(resolved) && options.courseId) setSelectedCourseId(Number(options.courseId));
+    if (resolved === "learn" && options.lessonId) setSelectedLessonId(Number(options.lessonId));
+    if (resolved === "graph") setGraphSelection(nextGraphSelection);
+    setPageState(resolved);
+    if (!changingLessonInSameCourse) scheduleScrollRestore(0);
   };
 
   useEffect(() => {
@@ -459,24 +465,12 @@ function App() {
       const routeCourseId = Number(event.state?.courseId || courseIdFromPath(window.location.pathname) || 0) || null;
       const routeLessonId = Number(event.state?.lessonId || lessonIdFromPath(window.location.pathname) || 0) || null;
       const targetPath = window.location.pathname;
-      const commitRoute = () => {
-        if (routeCourseId) setSelectedCourseId(routeCourseId);
-        if (routeLessonId) setSelectedLessonId(routeLessonId);
-        if (routePage === "graph") setGraphSelection({ view: new URLSearchParams(window.location.search).get("view") || "path", pathId: new URLSearchParams(window.location.search).get("pathId") });
-        setPageState(defaultPageForUser(user, needsInterestSetup, routePage));
-      };
       currentPathRef.current = targetPath;
-      if (typeof document.startViewTransition === "function") {
-        const transition = document.startViewTransition(() => flushSync(commitRoute));
-        const savedTop = scrollPositionsRef.current.get(targetPath) || 0;
-        transition.updateCallbackDone.then(
-          () => scheduleScrollRestore(savedTop, true),
-          () => scheduleScrollRestore(savedTop, true)
-        );
-      } else {
-        commitRoute();
-        scheduleScrollRestore(scrollPositionsRef.current.get(targetPath) || 0, true);
-      }
+      if (routeCourseId) setSelectedCourseId(routeCourseId);
+      if (routeLessonId) setSelectedLessonId(routeLessonId);
+      if (routePage === "graph") setGraphSelection({ view: new URLSearchParams(window.location.search).get("view") || "path", pathId: new URLSearchParams(window.location.search).get("pathId") });
+      setPageState(defaultPageForUser(user, needsInterestSetup, routePage));
+      scheduleScrollRestore(scrollPositionsRef.current.get(targetPath) || 0, true);
     };
     window.addEventListener("popstate", onPopState);
     return () => {
@@ -518,24 +512,44 @@ function App() {
   useEffect(() => {
     if (!user || !["student", "teacher"].includes(user.role)) return;
     if (needsInterestSetup) return;
+    const token = localStorage.getItem("learning_token");
+    let active = true;
+    const isCurrentSession = () => active && token && localStorage.getItem("learning_token") === token;
     api("/preferences").then((data) => {
+      if (!isCurrentSession()) return;
       const items = Array.isArray(data.subjects) ? data.subjects : [];
       localStorage.setItem("learning_preferences", JSON.stringify(items));
       setPreferences(items);
       setSelectedSubject(items[0] || "软件工程");
-      setPageState((current) => current === "auth" ? "home" : current);
     }).catch(() => {
+      if (!isCurrentSession()) return;
       localStorage.removeItem("learning_preferences");
       setPreferences([]);
-      setPageState((current) => current === "auth" ? "home" : current);
     });
-  }, [user?.id, needsInterestSetup]);
+    return () => { active = false; };
+  }, [user?.id, user?.role, needsInterestSetup]);
 
-  const loginDone = async (nextUser, token, authMode, needsInterestSelection) => {
+  useEffect(() => {
+    if (user?.role !== "student") { setPlanningChecked(true); return; }
+    let active = true;
+    const token = localStorage.getItem("learning_token");
+    setPlanningChecked(false);
+    getLearningProfile().then((profile) => {
+      if (!active || localStorage.getItem("learning_token") !== token) return;
+      if (profile.needsPlanning === true && ["", "home", "auth", "interests"].includes(pageFromPath(window.location.pathname))) {
+        navigatePage("planning", { replace: true });
+      }
+    }).catch(() => { /* A temporary profile failure must not trap the user before home. */ })
+      .finally(() => { if (active && localStorage.getItem("learning_token") === token) setPlanningChecked(true); });
+    return () => { active = false; };
+  }, [user?.id, user?.role]);
+
+  const loginDone = (nextUser, token, authMode, needsInterestSelection) => {
     setAuthNotice("");
     localStorage.setItem("learning_user", JSON.stringify(nextUser));
     if (token) localStorage.setItem("learning_token", token);
     setUser(nextUser);
+    setPlanningChecked(nextUser.role !== "student");
     if (nextUser.role === "admin") {
       setNeedsInterestSetup(false);
       localStorage.removeItem("learning_needs_interest_setup");
@@ -554,23 +568,12 @@ function App() {
       localStorage.removeItem("learning_preferences");
       setPreferences([]);
       setSelectedSubject("软件工程");
-      navigatePage("interests", { replace: true });
+      navigatePage("planning", { replace: true });
       return;
     }
     setNeedsInterestSetup(false);
     localStorage.removeItem("learning_needs_interest_setup");
-    try {
-      const data = await api("/preferences");
-      const items = Array.isArray(data.subjects) ? data.subjects : [];
-      localStorage.setItem("learning_preferences", JSON.stringify(items));
-      setPreferences(items);
-      setSelectedSubject(items[0] || "软件工程");
-      navigatePage("home", { replace: true });
-    } catch {
-      localStorage.removeItem("learning_preferences");
-      setPreferences([]);
-      navigatePage("home", { replace: true });
-    }
+    navigatePage("home", { replace: true });
   };
 
   const logout = () => {
@@ -581,31 +584,26 @@ function App() {
     navigatePage("auth", { replace: true });
   };
 
+  if (user?.role === "student" && !planningChecked && ["home", "auth", "interests"].includes(page)) {
+    return <main className="planning-loading" role="status"><GraduationCap size={30} /><p>正在准备你的学习空间…</p></main>;
+  }
+
   return (
     <div className="app-shell">
-      {user && page !== "interests" && <HeaderNav user={user} page={page} onNavigate={navigatePage} onLogout={logout} />}
+      {user && !["interests", "planning"].includes(page) && <HeaderNav user={user} page={page} onNavigate={navigatePage} onLogout={logout} />}
       {page === "auth" && <AuthPage onDone={loginDone} notice={authNotice} />}
-      {page === "interests" && (
-        <InterestSetupPage
-          selected={preferences}
-          catalogSubjects={catalogSubjects}
-          logout={logout}
-          onSave={(items) => {
-            localStorage.setItem("learning_preferences", JSON.stringify(items));
-            setPreferences(items);
-            setSelectedSubject(items[0] || "软件工程");
-            api("/preferences", { method: "POST", body: JSON.stringify({ subjects: items }) })
-              .then(() => {
-                setNeedsInterestSetup(false);
-                localStorage.removeItem("learning_needs_interest_setup");
-                navigatePage("home", { replace: true });
-              })
-              .catch((error) => handleActionError(error, "兴趣保存失败"));
-          }}
-        />
-      )}
+      {user && ["planning", "interests"].includes(page) && <LearningPlanningPage key={user.id} user={user} categoryTree={categoryTree} onLogout={logout} onFinish={({ answers, deferred }) => {
+        if (!deferred && answers.subject) {
+          setPreferences([answers.subject]); setSelectedSubject(answers.subject);
+          localStorage.setItem("learning_preferences", JSON.stringify([answers.subject]));
+        }
+        setNeedsInterestSetup(false); setPlanningChecked(true);
+        localStorage.removeItem("learning_needs_interest_setup");
+        navigatePage("home", { replace: true });
+      }} />}
       {page === "home" && (
         <StudentHome
+          user={user}
           resources={resources}
           setResources={setResources}
           resourceMeta={resourceMeta}
@@ -620,6 +618,7 @@ function App() {
       )}
       {page === "catalog" && (
         <StudentHome
+          user={user}
           resources={resources}
           setResources={setResources}
           resourceMeta={resourceMeta}
@@ -666,7 +665,7 @@ function App() {
       {user && ["student", "teacher"].includes(user.role) && <div hidden={page !== "chat"}>
         <AgentChatPage key={user.id} user={user} active={page === "chat"} />
       </div>}
-      {page === "teacher" && <TeacherDashboard resources={resources} setResources={setResources} setResourceMeta={setResourceMeta} />}
+      {page === "teacher" && <TeacherDashboard resources={resources} setResources={setResources} setResourceMeta={setResourceMeta} categoryTree={categoryTree} />}
       {page === "admin" && <AdminDashboard setPage={navigatePage} />}
     </div>
   );
@@ -799,10 +798,11 @@ function InterestSetupPage({ selected, catalogSubjects, onSave, logout }) {
   );
 }
 
-function StudentHome({ resources, setResources, resourceMeta, setResourceMeta, preferences, catalogSubjects, categoryTree, platformCategories, setPage, setSelectedSubject }) {
-  const [query, setQuery] = useState("");
+function StudentHome({ user, resources, setResources, resourceMeta, setResourceMeta, preferences, catalogSubjects, categoryTree, platformCategories, setPage, setSelectedSubject }) {
+  const [learningStage, setLearningStage] = useState(() => new URLSearchParams(window.location.search).get("stage") || "");
+  const [query, setQuery] = useState(() => new URLSearchParams(window.location.search).get("subject") || "");
   const [filters, setFilters] = useState({ categoryId: "", directionId: "", type: "" });
-  const [confirmedSelection, setConfirmedSelection] = useState({ query: "", categoryId: "", directionId: "", type: "" });
+  const [confirmedSelection, setConfirmedSelection] = useState(() => ({ query: new URLSearchParams(window.location.search).get("subject") || "", categoryId: "", directionId: "", type: "" }));
   const [filterPath, setFilterPath] = useState([]);
   const [loadingResources, setLoadingResources] = useState(false);
   const [resourceError, setResourceError] = useState("");
@@ -844,6 +844,7 @@ function StudentHome({ resources, setResources, resourceMeta, setResourceMeta, p
         categoryId: selection.categoryId,
         directionId: selection.directionId,
         type: selection.type
+        ,learningStage: selection.learningStage ?? learningStage
       });
       if (requestId !== resourceRequestRef.current) return;
       setResources(data.list || []);
@@ -963,6 +964,7 @@ function StudentHome({ resources, setResources, resourceMeta, setResourceMeta, p
         </aside>
       </section>
 
+      <LearningPlanSummary user={user} setPage={setPage} />
       <nav className="studio-discipline-ribbon" aria-label="热门学习领域">
         {spotlightCategories.map((category, index) => (
           <button key={category.name} onClick={() => openCatalog(category.name)}>
@@ -999,6 +1001,12 @@ function StudentHome({ resources, setResources, resourceMeta, setResourceMeta, p
               }}
             />
           </details>
+        </div>
+        <div className="course-stage-filters" role="group" aria-label="课程学习阶段">
+          {[{ code: "", label: "全部阶段" }, ...LEARNING_STAGES].map((stage) => <button key={stage.code} aria-pressed={learningStage === stage.code} onClick={() => {
+            setLearningStage(stage.code); const selection = { ...confirmedSelection, learningStage: stage.code };
+            setConfirmedSelection(selection); loadResources(1, selection);
+          }}>{stage.label}</button>)}
         </div>
         <div className="studio-course-tabs" role="list" aria-label="课程筛选">
           {["本周精选", "考研备考", "人工智能", "Java", "前端开发", "云计算"].map((label, index) => (
@@ -1624,17 +1632,47 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
   const [graphData, setGraphData] = useState(() => buildCategoryGraph(initialPath, tree));
   const [graphLoading, setGraphLoading] = useState(true);
   const [graphNotice, setGraphNotice] = useState("");
+  const [stageFilter, setStageFilter] = useState("");
+  const displayedGraph = useMemo(() => buildStageGraph(graphData, categoryPath, tree, stageFilter), [graphData, categoryPath, tree, stageFilter]);
   const [activeId, setActiveId] = useState(`${initialPath[initialPath.length - 1]}-root`);
   const [zoom, setZoom] = useState(0.92);
   const [layout, setLayout] = useState("radial");
   const [keyword, setKeyword] = useState("");
   const [openingCourse, setOpeningCourse] = useState(false);
+  const [knowledgeRecords, setKnowledgeRecords] = useState([]);
+  const [progressLoading, setProgressLoading] = useState(true);
+  const [progressError, setProgressError] = useState("");
+  const [progressReload, setProgressReload] = useState(0);
+  const progressRequestRef = useRef(0);
+  const nodeProgress = useMemo(() => createKnowledgeProgress(knowledgeRecords, tree), [knowledgeRecords, tree]);
   const [animatedNodes, setAnimatedNodes] = useState([]);
   const stageRef = React.useRef(null);
   const simulationRef = React.useRef(new Map());
   const draggingRef = React.useRef(null);
   const suppressClickRef = React.useRef(false);
   const graphRequestRef = React.useRef(0);
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      const requestId = ++progressRequestRef.current;
+      setProgressLoading(true);
+      setProgressError("");
+      try {
+        const records = await getKnowledgeProgress();
+        if (active && requestId === progressRequestRef.current) {
+          setKnowledgeRecords(Array.isArray(records) ? records : []);
+        }
+      } catch (error) {
+        if (active && requestId === progressRequestRef.current) setProgressError(error.message || "知识点进度加载失败");
+      } finally {
+        if (active && requestId === progressRequestRef.current) setProgressLoading(false);
+      }
+    };
+    load();
+    window.addEventListener("focus", load);
+    return () => { active = false; window.removeEventListener("focus", load); };
+  }, [progressReload]);
 
   const loadNeo4jGraph = async (path) => {
     const resolvedPath = path.length ? path : [tree[0]?.label || "软件工程"];
@@ -1662,7 +1700,7 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
       setGraphData(nextGraph);
       const root = nextGraph.nodes.find((node) => node.type === "root" || node.label === target) || nextGraph.nodes[0];
       setActiveId(root.id);
-      setGraphNotice(apiGraph.source === "neo4j" ? "" : `${data.fallbackReason || "Neo4j 暂不可用"}，当前按原三级分类显示备用图谱`);
+      setGraphNotice(apiGraph.source === "neo4j" ? "" : `${data.fallbackReason || "Neo4j 暂不可用"}，当前显示分阶段备用图谱`);
     } catch (error) {
       if (requestId !== graphRequestRef.current) return;
       const fallback = buildCategoryGraph(resolvedPath, tree);
@@ -1684,15 +1722,15 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
 
   const visibleNodes = useMemo(() => {
     const text = keyword.trim().toLowerCase();
-    if (!text) return graphData.nodes;
+    if (!text) return displayedGraph.nodes;
     const matchedIds = new Set();
-    graphData.nodes.forEach((node) => {
+    displayedGraph.nodes.forEach((node) => {
       if (String(node.label || "").toLowerCase().includes(text)) matchedIds.add(node.id);
     });
     let changed = true;
     while (changed) {
       changed = false;
-      graphData.links.forEach((link) => {
+      displayedGraph.links.forEach((link) => {
         if (matchedIds.has(link.source) || matchedIds.has(link.target)) {
           if (!matchedIds.has(link.source) || !matchedIds.has(link.target)) changed = true;
           matchedIds.add(link.source);
@@ -1700,13 +1738,13 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
         }
       });
     }
-    return graphData.nodes.filter((node) => matchedIds.has(node.id));
-  }, [graphData, keyword]);
+    return displayedGraph.nodes.filter((node) => matchedIds.has(node.id));
+  }, [displayedGraph, keyword]);
 
   const visibleIds = useMemo(() => new Set(visibleNodes.map((node) => node.id)), [visibleNodes]);
   const visibleLinks = useMemo(
-    () => graphData.links.filter((link) => visibleIds.has(link.source) && visibleIds.has(link.target)),
-    [graphData.links, visibleIds]
+    () => displayedGraph.links.filter((link) => visibleIds.has(link.source) && visibleIds.has(link.target)),
+    [displayedGraph.links, visibleIds]
   );
 
   const positioned = useMemo(() => {
@@ -1839,21 +1877,25 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
 
   const renderedNodes = animatedNodes.length === positioned.length ? animatedNodes : positioned;
   const nodeById = useMemo(() => Object.fromEntries(renderedNodes.map((node) => [node.id, node])), [renderedNodes]);
-  const active = graphData.nodes.find((node) => node.id === activeId) || renderedNodes[0] || graphData.nodes[0];
-  const completion = graphData.stats?.completionRate ?? 0;
-  const achievement = graphData.stats?.achievementRate ?? 0;
+  const active = displayedGraph.nodes.find((node) => node.id === activeId) || renderedNodes[0] || graphData.nodes[0];
+  const countedTopics = knowledgeLeavesForPath(tree, categoryPath).filter((node) => !stageFilter || node.learningStage === stageFilter);
+  const overallProgress = summarizeKnowledgeProgress(countedTopics.map((node) => nodeProgress(node, categoryPath)));
+  const completion = overallProgress.total
+    ? Math.min(overallProgress.status === "completed" ? 100 : 99, Math.round(overallProgress.completedCount * 100 / overallProgress.total)) : 0;
+  const achievement = overallProgress.progress;
   const currentLabel = categoryPath[categoryPath.length - 1] || subject;
-  const learnedCount = Math.max(0, active?.label === currentLabel ? 0 : 1);
+  const learnedCount = overallProgress.completedCount;
   const hasIntegratedThirdLevel = categoryPath.length === 1 && graphData.nodes.some((node) => node.type === "knowledge");
-  const totalKnowledgeCount = hasIntegratedThirdLevel
-    ? graphData.nodes.filter((node) => node.type === "knowledge").length
-    : Math.max(graphData.nodes.length - 1, 0);
+  const totalKnowledgeCount = overallProgress.total;
+  const activeProgress = nodeProgress(active, categoryPath);
+  const activeRecord = knowledgeRecordForNode(active, categoryPath);
   const activePath = active?.path || categoryPath;
   const activeCategory = findCategoryByPath(activePath, tree);
-  const activeCanDrill = active?.type !== "root" && activePath.length < 3 && !!activeCategory?.children?.length;
+  const activeCanDrill = !["root", "stage"].includes(active?.type) && activePath.length < 3 && !!activeCategory?.children?.length;
   const neo4jLevelLabel = categoryPath.length === 1 ? "二级方向" : categoryPath.length === 2 ? "三级知识点" : "当前知识点";
   const primaryLegendLabel = graphData.source === "neo4j" ? neo4jLevelLabel : graphData.source === "category" ? "二级方向" : graphData.source === "direction" ? "三级知识点" : "详细知识点";
   const nodeTypeLabel = (node) => {
+    if (node?.type === "stage") return "学习阶段";
     if (graphData.source === "neo4j" && node?.type === "root") return categoryPath.length === 1 ? "一级大类" : categoryPath.length === 2 ? "二级方向" : "三级知识点";
     if (node?.type === "root") return graphData.source === "category" ? "一级大类" : graphData.source === "direction" ? "二级方向" : "三级知识点";
     if (node?.type === "direction") return "二级方向";
@@ -1862,6 +1904,7 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
   };
   const openNode = (node) => {
     setActiveId(node.id);
+    if (node.type === "stage") { setStageFilter(node.learningStage); return; }
     const nextPath = node.path || findCategoryPath(node.label, tree);
     const nextCategory = findCategoryByPath(nextPath || [], tree);
     if (nextPath && nextPath.length <= 3 && nextCategory?.children?.length) {
@@ -1872,10 +1915,6 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
       setSelectedSubject?.(nextPath[nextPath.length - 1]);
       loadNeo4jGraph(nextPath);
       return;
-    }
-    if (node.label !== currentLabel) {
-      const learningSubject = nextPath?.[1] || categoryPath[1] || currentLabel;
-      api("/learning/records", { method: "POST", body: JSON.stringify({ subject: learningSubject, knowledgeNode: node.label, progress: 10 }) }).catch(() => {});
     }
   };
   const learnNode = (node) => {
@@ -2008,14 +2047,18 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
             <input placeholder="搜索知识点" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
           </label>
           <button onClick={() => setLayout((value) => value === "radial" ? "layer" : "radial")}>布局切换</button>
-          <span>已点亮 {learnedCount}/{totalKnowledgeCount}</span>
+          <span>{progressLoading ? "正在加载进度…" : progressError ? "进度暂不可用" : `已完成 ${learnedCount}/${totalKnowledgeCount}`}</span>
         </div>
       </div>
       <aside className="graph-stats">
         <div><BookOpen size={24} /><span>知识点总数</span><strong>{totalKnowledgeCount}</strong></div>
-        <div><BarChart3 size={24} /><span>学习完成率</span><strong>{completion}%</strong></div>
-        <div><CheckCircle2 size={24} /><span>学习达成率</span><strong>{achievement}%</strong></div>
+        <div><BarChart3 size={24} /><span>学习完成率</span><strong>{progressLoading || progressError ? "—" : `${completion}%`}</strong></div>
+        <div><CheckCircle2 size={24} /><span>平均学习进度</span><strong>{progressLoading || progressError ? "—" : `${achievement}%`}</strong></div>
       </aside>
+      <div className="graph-stage-filter" role="group" aria-label="图谱学习阶段">
+        {[{ code: "", label: "全部阶段" }, ...LEARNING_STAGES].map((stage) => <button key={stage.code} aria-pressed={stageFilter === stage.code} onClick={() => setStageFilter(stage.code)}>{stage.label}</button>)}
+        <span>进入学习方向，可查看三个阶段的知识点分组</span>
+      </div>
       <section className="graph-canvas">
         {graphLoading && <div className="graph-data-message loading">正在从 Neo4j 加载知识节点与关系...</div>}
         {!graphLoading && graphNotice && <div className="graph-data-message warning">{graphNotice}</div>}
@@ -2032,19 +2075,26 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
               const source = nodeById[link.source];
               const target = nodeById[link.target];
               if (!source || !target) return null;
-              return <line key={`${link.source}-${link.target}-${index}`} x1={source.x} y1={source.y} x2={target.x} y2={target.y} />;
+              const completed = nodeProgress(target, categoryPath).status === "completed";
+              return <line className={completed ? "knowledge-link-completed" : ""} key={`${link.source}-${link.target}-${index}`} x1={source.x} y1={source.y} x2={target.x} y2={target.y} />;
             })}
             {!visibleLinks.length && renderedNodes.slice(1).map((node) => <line key={node.id} x1="50" y1="50" x2={node.x} y2={node.y} />)}
           </svg>
           {renderedNodes.map((node, index) => (
             <button
               key={node.id}
-              className={`${index === 0 ? "center-node" : "graph-node"} ${node.type === "direction" ? "track-node" : ""} ${node.type === "knowledge" ? "course-node" : ""} ${node.type === "point" ? "point-node" : ""} ${hasIntegratedThirdLevel && node.type === "knowledge" ? "integrated-third-node" : ""} ${active?.id === node.id ? "active" : ""}`}
+              className={`${index === 0 ? "center-node" : "graph-node"} ${node.type === "stage" ? "stage-node" : ""} ${node.type === "direction" ? "track-node" : ""} ${node.type === "knowledge" ? "course-node" : ""} ${node.type === "point" ? "point-node" : ""} ${hasIntegratedThirdLevel && node.type === "knowledge" ? "integrated-third-node" : ""} ${active?.id === node.id ? "active" : ""} learning-${nodeProgress(node, categoryPath).status}`}
+              data-learning-status={nodeProgress(node, categoryPath).status}
+              data-knowledge-subject={knowledgeRecordForNode(node, categoryPath).subject}
+              data-knowledge-name={knowledgeRecordForNode(node, categoryPath).knowledgeNode}
+              title={`${node.label} · ${knowledgeStatusLabel(nodeProgress(node, categoryPath).status)} ${nodeProgress(node, categoryPath).progress}%`}
+              aria-label={`${node.label}，${knowledgeStatusLabel(nodeProgress(node, categoryPath).status)}`}
               style={{ left: `${node.x}%`, top: `${node.y}%` }}
               onPointerDown={(event) => startDragNode(event, node)}
               onClick={() => learnNode(node)}
             >
               {node.label}
+              {nodeProgress(node, categoryPath).status === "completed" && <CheckCircle2 className="graph-completion-mark" aria-hidden="true" size={16} />}
               {index === 0 && <span>{nodeTypeLabel(node)}</span>}
             </button>
           ))}
@@ -2053,6 +2103,9 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
           <span><i className="root-dot" /> 根节点</span>
           <span><i className="unit-dot" /> {primaryLegendLabel}</span>
           <span><i className="point-dot" /> {hasIntegratedThirdLevel ? "三级知识点（已整合）" : "点击节点继续下钻"}</span>
+          <span><i className="knowledge-not-started-dot" /> 未开始</span>
+          <span><i className="knowledge-in-progress-dot" /> 学习中</span>
+          <span><i className="knowledge-completed-dot" /> 已完成</span>
         </div>
         <div className="graph-tools">
           <button title="缩小" onClick={() => setZoom((value) => Math.max(value - 0.1, 0.45))}><ZoomOut size={18} /></button>
@@ -2065,17 +2118,24 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
       <aside className="node-detail">
         <span className="eyebrow">当前节点</span>
         <h3>{active?.label || subject}</h3>
-        <p>{active?.description || "系统会记录你的知识点点击与学习行为，后续用于路径规划、薄弱点分析和课程推荐。"}</p>
+        <p>{active?.description || "颜色根据课程中的实际学习进度更新，查看图谱节点不会增加学习进度。"}</p>
         <div className="node-detail-meta">
           <span>{graphData.source === "neo4j" ? "Neo4j 图谱" : graphData.source === "mysql" ? "MySQL 备用图谱" : "本地备用图谱"}</span>
           <span>{nodeTypeLabel(active)}</span>
         </div>
+        <div className={`knowledge-progress-summary learning-${activeProgress.status}`} role="status">
+          {activeProgress.status === "completed" && <CheckCircle2 size={18} aria-hidden="true" />}
+          <strong>{progressLoading ? "正在加载进度…" : knowledgeStatusLabel(activeProgress.status)}</strong>
+          <span>{activeRecord.isKnowledgePoint ? `${activeProgress.progress}%` : `${activeProgress.completedCount}/${activeProgress.total} 个知识点完成`}</span>
+        </div>
+        <p className="knowledge-progress-hint">进入课程学习后自动更新，达到 100% 时标绿。</p>
+        {progressError && <div className="inline-error-state" role="alert">{progressError}<button onClick={() => setProgressReload((value) => value + 1)}>重新加载进度</button></div>}
         <button
           className="primary-btn"
           disabled={openingCourse}
-          onClick={() => active && (activeCanDrill ? openNode(active) : openKnowledgeCourse(active))}
+          onClick={() => active && (active.type === "stage" ? setPage("catalog", { learningStage: active.learningStage, subject: categoryPath[1] }) : activeCanDrill ? openNode(active) : openKnowledgeCourse(active))}
         >
-          {activeCanDrill ? `进入 ${active?.label} 图谱` : openingCourse ? "正在匹配课程…" : "学习该知识点"}
+          {active?.type === "stage" ? "查看该阶段课程" : activeCanDrill ? `进入 ${active?.label} 图谱` : openingCourse ? "正在匹配课程…" : "学习该知识点"}
         </button>
       </aside>
     </main>
@@ -2470,8 +2530,10 @@ function AgentsPage({ user, preferences, setPage }) {
               <button disabled={Boolean(busyAgents[agent.id])} onClick={() => runAgent(agent.id)}>
                 {busyAgents[agent.id] ? "分析中..." : "开始分析"}
               </button>
-              {busyAgents[agent.id] && <p className="muted" role="status">分析正在进行，可切换其他页面，返回后查看结果。</p>}
-              {outputs[agent.id] && (
+              <div className="agent-response-slot">
+              {busyAgents[agent.id] && <GenerationStatus className="analysis-thinking" label="正在整理学习分析" detail="分析正在进行，可切换其他页面，返回后查看结果。" />}
+              {!busyAgents[agent.id] && !outputs[agent.id] && <p className="agent-response-empty">分析结果将显示在这里</p>}
+              {!busyAgents[agent.id] && outputs[agent.id] && (
                 <div className={`agent-output${outputs[agent.id].error ? " error" : ""}`} role={outputs[agent.id].error ? "alert" : undefined}>
                   {outputs[agent.id].text}
                   {outputs[agent.id].learningPath && <div className="agent-path-action"><p>{outputs[agent.id].learningPath.neo4jSynced ? "个人路径已生成并写入 Neo4j。" : "个人路径已保存，Neo4j 恢复后可同步。"}</p><button onClick={() => setPage("graph", { pathId: outputs[agent.id].learningPath.pathId })}>查看我的路径图谱<GitBranch size={16} /></button></div>}
@@ -2486,6 +2548,7 @@ function AgentsPage({ user, preferences, setPage }) {
                   )}
                 </div>
               )}
+              </div>
             </article>
           );
         })}
@@ -2703,10 +2766,12 @@ function MessagesPage({ user, setPage }) {
   );
 }
 
-function TeacherDashboard({ resources, setResources, setResourceMeta }) {
+function TeacherDashboard({ resources, setResources, setResourceMeta, categoryTree = [] }) {
+  const [structureCourse, setStructureCourse] = useState(null);
   const editorRef = useRef(null);
   const titleInputRef = useRef(null);
-  const [form, setForm] = useState({ title: "", subject: "Java", type: "video", level: "入门", description: "", content: "" });
+  const [form, setForm] = useState({ title: "", subject: "Java", type: "video", level: "入门", learningStage: "foundation", description: "", content: "" });
+  const courseSubjects = [...new Set([...subjects, ...categoryTree.flatMap((category) => (category.children || []).map((direction) => direction.label)), ...resources.map((item) => item.subject), form.subject].filter(Boolean))];
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
@@ -2757,7 +2822,7 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
     setEditingId(null);
     setResourceNotice("");
     setResourceError("");
-    setForm({ title: "", subject: "Java", type: "video", level: "入门", description: "", content: "" });
+    setForm({ title: "", subject: "Java", type: "video", level: "入门", learningStage: "foundation", description: "", content: "" });
     setFileInputKey((current) => current + 1);
   };
 
@@ -2786,7 +2851,8 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
         Object.entries(form).forEach(([key, value]) => {
           if (value !== undefined && value !== null) formData.append(key, value);
         });
-        await api("/teacher/resources", { method: "POST", body: formData });
+        const created = await api("/teacher/resources", { method: "POST", body: formData });
+        if (created.courseId) setStructureCourse({ id: created.courseId, title: form.title });
       }
       const successMessage = editingId ? "修改已提交，等待管理员重新审核" : "课程作品已提交，管理员审核通过后将向学生发布";
       resetForm();
@@ -2816,6 +2882,7 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
       subject: item.subject || "Java",
       type: item.type || "material",
       level: item.level || "入门",
+      learningStage: item.learningStage || inferLearningStage(item.title, item.level),
       description: item.description || "",
       content: item.content || buildResourceTextContent(item)
     });
@@ -2888,9 +2955,10 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
           {resourceError && <p className="inline-error-state" role="alert">{resourceError}</p>}
           <form className="teacher-form" onSubmit={submit} aria-busy={saving}>
             <input ref={titleInputRef} placeholder="课程或资源标题" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
-            <select value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })}>{subjects.map((s) => <option key={s}>{s}</option>)}</select>
+            <select aria-label="课程方向" value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })}>{courseSubjects.map((s) => <option key={s}>{s}</option>)}</select>
             <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}><option value="video">视频</option><option value="material">学习资料</option></select>
             <select value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })}><option>入门</option><option>进阶</option><option>项目实战</option></select>
+            <label className="teacher-stage-select">学习阶段<select aria-label="课程学习阶段" value={form.learningStage} onChange={(e) => setForm({ ...form, learningStage: e.target.value })}>{LEARNING_STAGES.map((stage) => <option key={stage.code} value={stage.code}>{stage.label}</option>)}</select></label>
             <textarea placeholder="内容简介" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
             <textarea className="content-textarea" placeholder="文本学习内容，不填则系统自动生成不少于 500 字的学习正文" value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} />
             {!editingId && <input key={fileInputKey} type="file" accept="video/*,.pdf,.doc,.docx,.ppt,.pptx,.txt" onChange={(e) => setForm({ ...form, file: e.target.files?.[0] })} />}
@@ -2985,6 +3053,8 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
         </section>
       </section>
 
+      {structureCourse && <TeacherCourseEditor key={structureCourse.id} course={structureCourse} onClose={() => setStructureCourse(null)} onChanged={() => { refreshResources().catch((err) => setResourceError(err.message)); loadAnalytics(); }} />}
+
       <section className="analytics-panel resource-analysis">
         <div className="panel-head">
           <div>
@@ -3056,6 +3126,7 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
               <ResourceCard item={item} />
               {item.reviewFeedback && <p className="teacher-review-feedback"><MessageCircle size={14} /><span><strong>管理员反馈</strong>{item.reviewFeedback}</span></p>}
               <div className="teacher-resource-actions">
+                <button type="button" onClick={() => { setStructureCourse({ id: item.id, title: item.title }); window.requestAnimationFrame(() => document.querySelector(".course-structure-editor")?.scrollIntoView({ behavior: "smooth", block: "start" })); }}>管理章节与资料</button>
                 <button type="button" aria-controls="teacher-course-editor" aria-pressed={editingId === item.id} disabled={saving || deletingId !== null} onClick={() => startEdit(item)}>编辑</button>
                 <button disabled={saving || deletingId !== null} onClick={() => deleteResource(item.id)}>
                   {deletingId === item.id ? "删除中..." : "删除"}

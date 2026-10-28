@@ -1,6 +1,7 @@
 import request from "../utils/request";
 
 export const getLearningSummary = () => request("/learning/summary");
+export const getKnowledgeProgress = () => request("/learning/knowledge-progress");
 export const saveLearningProgress = (payload) => request("/learning/records", {
   method: "POST",
   body: JSON.stringify(payload)

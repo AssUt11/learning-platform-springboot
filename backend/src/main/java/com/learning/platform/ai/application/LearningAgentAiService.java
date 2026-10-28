@@ -178,8 +178,12 @@ public class LearningAgentAiService {
         }
         if ("path".equals(type)) {
             return "基于学习概况、候选课程和图谱先修工具提供的证据，生成1-5步个人学习路径。"
+                    + "如有studyIntent，依据其中的学习目标、经验、自述学过的内容、期望起点和每日时间规划；自述不等于完成记录。"
+                    + "按foundation基础、intermediate中期、advanced进阶安排阶段；优先匹配起点，必要时补前置基础。"
+                    + "每步附stage和简短reason，阶段应匹配候选课程的learningStage。"
+                    + "结合lessonAndQuizEvidence：低于60分先复习，达到80分可进阶；未测验不能断言薄弱或掌握。说明推荐原因，并给出可验证的完成标准。"
                     + "最终只输出JSON：{\"title\":\"路径名称\",\"summary\":\"规划说明\",\"steps\":["
-                    + "{\"title\":\"步骤名称\",\"goal\":\"学习目标\",\"completionCriteria\":\"完成标准\",\"courseId\":null}]}。"
+                    + "{\"title\":\"步骤名称\",\"goal\":\"学习目标\",\"completionCriteria\":\"完成标准\",\"stage\":\"foundation\",\"reason\":\"推荐原因\",\"courseId\":null}]}。"
                     + "courseId只允许引用get_learning_resources返回的课程ID；无匹配课程必须为null。"
                     + "遵守工具中明确的先修关系；建议学习顺序不代表新增公共先修关系。每步描述简短，总字数约400字。";
         }

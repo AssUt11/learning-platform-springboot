@@ -60,6 +60,7 @@ public class KnowledgeTaxonomyService {
         item.put("level", level);
         item.put("description", description);
         item.put("children", children);
+        if (level >= 3) item.put("learningStage", LearningStages.infer(name, ""));
         return item;
     }
 
@@ -111,12 +112,25 @@ public class KnowledgeTaxonomyService {
             }
             directionsBySubject.computeIfAbsent(name, key -> new ArrayList<>()).add(direction);
         }
-        for (Map<String, Object> row : jdbc.queryForList("select subject,title,description from knowledge_nodes order by sort_order,id")) {
+        List<Map<String, Object>> topics = new ArrayList<>(jdbc.queryForList("select subject,title,description from knowledge_nodes order by sort_order,id"));
+        topics.addAll(jdbc.queryForList("""
+                select coalesce(d.name,r.subject) subject,l.title,'' description,s.stage_code learningStage
+                from course_lessons l join course_chapters ch on ch.id=l.chapter_id
+                join courses c on c.id=ch.course_id join resources r on r.id=c.legacy_resource_id
+                left join directions d on d.id=r.direction_id
+                left join course_learning_stages s on s.resource_id=r.id
+                where r.status=1 and r.review_status='approved' and r.lifecycle_status='active'
+                  and ch.status='published' and l.status='published' order by r.id,ch.sort_order,l.sort_order,l.id
+                """));
+        for (Map<String, Object> row : topics) {
             for (Map<String, Object> direction : directionsBySubject.getOrDefault(String.valueOf(row.get("subject")), List.of())) {
                 List<Map<String, Object>> children = (List<Map<String, Object>>)direction.get("children");
                 String title = String.valueOf(row.get("title"));
-                if (children.stream().noneMatch(item -> title.equals(item.get("name"))))
-                    children.add(category(title, codeFromName(title), 3, Objects.toString(row.get("description"), ""), new ArrayList<>()));
+                if (children.stream().noneMatch(item -> title.equals(item.get("name")))) {
+                    Map<String, Object> topic = category(title, codeFromName(title), 3, Objects.toString(row.get("description"), ""), new ArrayList<>());
+                    if (row.get("learningStage") != null) topic.put("learningStage", row.get("learningStage"));
+                    children.add(topic);
+                }
             }
         }
         return roots;
@@ -136,7 +150,8 @@ public class KnowledgeTaxonomyService {
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("key", key); row.put("parentKey", parentKey); row.put("path", path);
             row.put("title", item.get("name")); row.put("code", item.get("code")); row.put("level", item.get("level"));
-            row.put("description", item.get("description")); result.add(row);
+            row.put("description", item.get("description"));
+            row.put("learningStage", item.getOrDefault("learningStage", "")); result.add(row);
             flatten((List<Map<String, Object>>)item.get("children"), key, path, result);
         }
     }
