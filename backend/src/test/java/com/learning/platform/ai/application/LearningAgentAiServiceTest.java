@@ -18,8 +18,80 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import static org.mockito.ArgumentMatchers.eq;
 
 class LearningAgentAiServiceTest {
+    @Test
+    void repairsMalformedEvidenceBasedPathOnce() throws Exception {
+        AiProperties properties = new AiProperties(); properties.setEnabled(true);
+        AiModelProvider provider = mock(AiModelProvider.class);
+        ObjectMapper mapper = new ObjectMapper();
+        when(provider.requiresPrefetchedEvidence()).thenReturn(true);
+        String corrected = mapper.writeValueAsString(Map.of("title", "Java路径", "summary", "按证据学习",
+                "steps", List.of(Map.of("title", "基础", "goal", "理解变量", "completionCriteria", "完成练习"))));
+        when(provider.chatTurn(any(), any(), anyBoolean(), any())).thenReturn(
+                mapper.valueToTree(Map.of("message", Map.of("role", "assistant", "content", "非JSON路径"))),
+                mapper.valueToTree(Map.of("message", Map.of("role", "assistant", "content", corrected))));
+        LearningAgentAiService service = new LearningAgentAiService(properties, provider, mapper,
+                mock(LearningAgentToolbox.class));
+        assertEquals(1, ((List<?>) service.execute("path", context()).getLearningPath().get("nodes")).size());
+        verify(provider, org.mockito.Mockito.times(2)).chatTurn(any(), any(), anyBoolean(), any());
+    }
+
+    @Test
+    void stillRejectsInvalidCourseAfterSinglePathRepair() throws Exception {
+        AiProperties properties = new AiProperties(); properties.setEnabled(true);
+        AiModelProvider provider = mock(AiModelProvider.class);
+        ObjectMapper mapper = new ObjectMapper();
+        when(provider.requiresPrefetchedEvidence()).thenReturn(true);
+        String invalid = mapper.writeValueAsString(Map.of("title", "Java路径", "summary", "学习计划",
+                "steps", List.of(Map.of("title", "基础", "goal", "理解变量", "completionCriteria", "完成练习", "courseId", 999))));
+        when(provider.chatTurn(any(), any(), anyBoolean(), any())).thenReturn(
+                mapper.valueToTree(Map.of("message", Map.of("role", "assistant", "content", invalid))));
+        LearningAgentAiService service = new LearningAgentAiService(properties, provider, mapper,
+                mock(LearningAgentToolbox.class));
+        assertEquals(502, assertThrows(BusinessException.class, () -> service.execute("path", context())).getCode());
+        verify(provider, org.mockito.Mockito.times(2)).chatTurn(any(), any(), anyBoolean(), any());
+    }
+
+    @Test
+    void prefetchesAuthorizedEvidenceAndDoesNotSendToolDefinitionsToModel() throws Exception {
+        AiProperties properties = new AiProperties(); properties.setEnabled(true);
+        AiModelProvider provider = mock(AiModelProvider.class);
+        LearningAgentToolbox toolbox = mock(LearningAgentToolbox.class);
+        ObjectMapper mapper = new ObjectMapper();
+        when(provider.requiresPrefetchedEvidence()).thenReturn(true);
+        when(toolbox.definitions("guide")).thenReturn(List.of(Map.of("function", Map.of("name", "get_learning_profile"))));
+        when(toolbox.requiredTools("guide")).thenReturn(List.of("get_learning_profile"));
+        when(toolbox.execute(eq("get_learning_profile"), any(), any())).thenReturn(new LearningAgentToolbox.ToolResult(
+                Map.of("recordCount", 3), List.of("learning_records"), false));
+        when(provider.chatTurn(any(), eq(Collections.emptyList()), anyBoolean(), any())).thenAnswer(invocation -> {
+            List<Map<String, Object>> messages = invocation.getArgument(0);
+            org.junit.jupiter.api.Assertions.assertTrue(messages.get(1).get("content").toString().contains("\"recordCount\":3"));
+            return mapper.readTree("{\"message\":{\"role\":\"assistant\",\"content\":\"基于三条记录的诊断\"}}");
+        });
+        LearningAgentAiService service = new LearningAgentAiService(properties, provider, mapper, toolbox);
+        LearningAgentResult result = service.execute("guide", context());
+        assertEquals(List.of("get_learning_profile"), result.getToolsUsed());
+        assertEquals("prefetched-evidence", service.executionMode());
+        verify(toolbox).execute(eq("get_learning_profile"), any(), any());
+    }
+
+    @Test
+    void rejectsToolNotOfferedInCurrentScene() throws Exception {
+        AiProperties properties = new AiProperties(); properties.setEnabled(true);
+        AiModelProvider provider = mock(AiModelProvider.class);
+        LearningAgentToolbox toolbox = mock(LearningAgentToolbox.class);
+        ObjectMapper mapper = new ObjectMapper();
+        when(toolbox.definitions("guide")).thenReturn(List.of(Map.of("function", Map.of("name", "get_learning_profile"))));
+        when(provider.chatTurn(any(), any(), anyBoolean(), any())).thenReturn(mapper.readTree(
+                "{\"message\":{\"role\":\"assistant\",\"tool_calls\":[{\"function\":{\"name\":\"get_graph_prerequisites\",\"arguments\":{}}}]}}"));
+        LearningAgentAiService service = new LearningAgentAiService(properties, provider, mapper, toolbox);
+        assertThrows(BusinessException.class, () -> service.execute("guide", context()));
+        org.mockito.Mockito.verify(toolbox, org.mockito.Mockito.never()).execute(any(), any(), any());
+    }
+
     @Test
     void returnsVisibleOllamaAnswerWithoutThinkingContent() throws Exception {
         AiProperties properties = new AiProperties();
@@ -27,7 +99,7 @@ class LearningAgentAiServiceTest {
         AiModelProvider provider = mock(AiModelProvider.class);
         LearningAgentToolbox toolbox = mock(LearningAgentToolbox.class);
         ObjectMapper mapper = new ObjectMapper();
-        when(toolbox.definitions("guide")).thenReturn(Collections.singletonList(Collections.emptyMap()));
+        when(toolbox.definitions("guide")).thenReturn(List.of(Map.of("function", Map.of("name", "get_learning_profile"))));
         when(toolbox.requiredTools("guide")).thenReturn(Collections.singletonList("get_learning_profile"));
         when(toolbox.execute(any(), any(), any())).thenReturn(new LearningAgentToolbox.ToolResult(
                 Collections.singletonMap("recordCount", 3), Collections.singletonList("learning_records"), false));
@@ -52,7 +124,7 @@ class LearningAgentAiServiceTest {
         AiModelProvider provider = mock(AiModelProvider.class);
         LearningAgentToolbox toolbox = mock(LearningAgentToolbox.class);
         ObjectMapper mapper = new ObjectMapper();
-        when(toolbox.definitions("path")).thenReturn(Collections.singletonList(Collections.emptyMap()));
+        when(toolbox.definitions("path")).thenReturn(List.of(Map.of("function", Map.of("name", "get_graph_prerequisites"))));
         when(toolbox.requiredTools("path")).thenReturn(Collections.singletonList("get_graph_prerequisites"));
         when(toolbox.execute(any(), any(), any())).thenReturn(new LearningAgentToolbox.ToolResult(
                 Collections.singletonMap("available", false), Collections.emptyList(), false));

@@ -5,6 +5,7 @@ public class LessonProgressRequest {
     private Integer positionSeconds;
     private Integer durationSeconds;
     private String eventType;
+    private Integer readingProgressPercent;
 
     public Long getCourseId() { return courseId; }
     public void setCourseId(Long courseId) { this.courseId = courseId; }
@@ -14,4 +15,6 @@ public class LessonProgressRequest {
     public void setDurationSeconds(Integer durationSeconds) { this.durationSeconds = durationSeconds; }
     public String getEventType() { return eventType; }
     public void setEventType(String eventType) { this.eventType = eventType; }
+    public Integer getReadingProgressPercent() { return readingProgressPercent; }
+    public void setReadingProgressPercent(Integer readingProgressPercent) { this.readingProgressPercent = readingProgressPercent; }
 }

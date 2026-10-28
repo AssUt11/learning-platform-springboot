@@ -64,9 +64,10 @@ public class TutorPromptService {
 
     private int inputBudget() {
         int configuredBudget = Math.max(512, properties.getContextMaxChars());
-        int modelBudget = Math.max(512,
-                properties.getOllama().getNumCtx() - Math.max(0, properties.getOllama().getNumPredict())
-                        - MODEL_PROTOCOL_RESERVE);
+        boolean llamaFactory = "llamafactory".equals(properties.getProvider());
+        int window = llamaFactory ? properties.getLlamaFactory().getContextWindow() : properties.getOllama().getNumCtx();
+        int output = llamaFactory ? properties.getLlamaFactory().getMaxTokens() : properties.getOllama().getNumPredict();
+        int modelBudget = Math.max(512, window - Math.max(0, output) - MODEL_PROTOCOL_RESERVE);
         return Math.min(configuredBudget, modelBudget);
     }
 

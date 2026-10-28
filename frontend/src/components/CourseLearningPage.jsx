@@ -20,6 +20,7 @@ import {
 } from "../api/learning";
 import CourseVideo from "./CourseVideo";
 import AiTutorPanel from "./AiTutorPanel";
+import PracticePanel from "./PracticePanel";
 
 const EMPTY_PROGRESS = {
   totalLessons: 0,
@@ -47,6 +48,8 @@ export default function CourseLearningPage({ courseId, lessonId, setPage }) {
   const lastSavedSecondRef = useRef(0);
   const restoredLessonRef = useRef(null);
   const mountedRef = useRef(true);
+  const readingProgressRef = useRef(new Map());
+  const articleRef = useRef(null);
 
   const chapters = Array.isArray(course?.outline?.chapters) ? course.outline.chapters : [];
   const lessons = useMemo(
@@ -64,6 +67,9 @@ export default function CourseLearningPage({ courseId, lessonId, setPage }) {
   const lessonProgress = progress.lessons.find((item) => Number(item.lessonId) === Number(activeLesson?.id));
   const previousLesson = activeIndex > 0 ? lessons[activeIndex - 1] : null;
   const nextLesson = activeIndex >= 0 && activeIndex < lessons.length - 1 ? lessons[activeIndex + 1] : null;
+  const articleText = [...new Set((activeLesson?.assets || [])
+    .filter((asset) => asset.transcodingStatus === "ready" && asset.contentText)
+    .map((asset) => asset.contentText))].join("\n\n") || activeLesson?.contentText || course?.content;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -126,7 +132,8 @@ export default function CourseLearningPage({ courseId, lessonId, setPage }) {
       if (!nextLessons.some((item) => Number(item.lessonId) === Number(saved.lessonId))) nextLessons.push(saved);
       const completedLessons = nextLessons.filter((item) => item.completed).length;
       const progressPercent = nextLessons.length
-        ? Math.round(nextLessons.reduce((sum, item) => sum + Number(item.progressPercent || 0), 0) / nextLessons.length)
+        ? completedLessons === nextLessons.length ? 100
+          : Math.min(99, Math.round(nextLessons.reduce((sum, item) => sum + Number(item.progressPercent || 0), 0) / nextLessons.length))
         : 0;
       return {
         ...current,
@@ -139,12 +146,12 @@ export default function CourseLearningPage({ courseId, lessonId, setPage }) {
     });
   };
 
-  const persistLesson = async (lesson, eventType = "heartbeat", silent = false) => {
+  const persistLesson = async (lesson, eventType = "heartbeat", silent = false, readingProgressPercent = 0) => {
     if (!lesson) return null;
     const video = videoRef.current;
     const isVideo = lesson.lessonType === "video";
-    if (!isVideo && eventType !== "completed") return null;
-    const positionSeconds = isVideo ? Math.max(0, Math.floor(video?.currentTime || 0)) : 1;
+    if (!isVideo && !["completed", "reading"].includes(eventType)) return null;
+    const positionSeconds = isVideo ? Math.max(0, Math.floor(video?.currentTime || 0)) : eventType === "completed" ? 1 : 0;
     const durationSeconds = isVideo
       ? Math.max(0, Math.floor(Number.isFinite(video?.duration) ? video.duration : lesson.durationSeconds || 0))
       : 1;
@@ -152,7 +159,10 @@ export default function CourseLearningPage({ courseId, lessonId, setPage }) {
     if (isVideo) lastSavedSecondRef.current = Math.max(lastSavedSecondRef.current, positionSeconds);
     if (!silent && mountedRef.current) setSaving(true);
     try {
-      const saved = await saveLessonProgress(courseId, lesson.id, { positionSeconds, durationSeconds, eventType });
+      const saved = await saveLessonProgress(courseId, lesson.id, {
+        positionSeconds, durationSeconds, eventType,
+        ...(eventType === "reading" ? { readingProgressPercent } : {})
+      });
       lastSavedSecondRef.current = Math.max(lastSavedSecondRef.current, Number(saved.lastPositionSeconds || 0));
       if (mountedRef.current) mergeSavedProgress(saved);
       return saved;
@@ -163,6 +173,33 @@ export default function CourseLearningPage({ courseId, lessonId, setPage }) {
       if (!silent && mountedRef.current) setSaving(false);
     }
   };
+
+  const recordReadingActivity = async (percent = 1) => {
+    if (!activeLesson || activeLesson.lessonType === "video" || lessonProgress?.completed) return;
+    const previous = Math.max(lessonProgress?.progressPercent || 0, readingProgressRef.current.get(activeLesson.id) || 0);
+    const next = Math.max(1, Math.min(99, percent));
+    if (next <= previous) return;
+    readingProgressRef.current.set(activeLesson.id, next);
+    const saved = await persistLesson(activeLesson, "reading", true, next);
+    if (!saved) readingProgressRef.current.set(activeLesson.id, previous);
+  };
+
+  useEffect(() => {
+    if (!activeLesson || activeLesson.lessonType === "video" || playback.status !== "article" || lessonProgress?.completed) return;
+    let visibleSeconds = 0;
+    const baseline = Math.min(99, lessonProgress?.progressPercent || 0);
+    const estimatedSeconds = Math.max(60, Number(activeLesson.durationSeconds) || Math.ceil((articleText?.length || 300) / 5));
+    const timer = window.setInterval(() => {
+      const bounds = articleRef.current?.getBoundingClientRect();
+      if (document.visibilityState !== "visible" || !document.hasFocus() || !bounds || bounds.bottom <= 0 || bounds.top >= window.innerHeight) return;
+      visibleSeconds += 1;
+      // Opening a lesson alone is not study. Count sustained foreground reading and real reading actions.
+      if (visibleSeconds === 5 || (visibleSeconds > 5 && visibleSeconds % 15 === 0)) {
+        recordReadingActivity(baseline + Math.max(1, Math.floor(visibleSeconds * 100 / estimatedSeconds)));
+      }
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [activeLesson?.id, playback.status, lessonProgress?.completed]);
 
   useEffect(() => {
     if (!activeLesson) return;
@@ -240,7 +277,9 @@ export default function CourseLearningPage({ courseId, lessonId, setPage }) {
 
   const handleTimeUpdate = (event) => {
     const currentSecond = Math.floor(event.currentTarget.currentTime || 0);
-    if (currentSecond - lastSavedSecondRef.current >= 12) persistLesson(activeLesson, "heartbeat", true);
+    if (currentSecond > 0 && (lastSavedSecondRef.current === 0 || currentSecond - lastSavedSecondRef.current >= 12)) {
+      persistLesson(activeLesson, "heartbeat", true);
+    }
   };
 
   const completeArticle = async () => {
@@ -339,16 +378,23 @@ export default function CourseLearningPage({ courseId, lessonId, setPage }) {
               </div>
             )}
             {playback.status === "article" && (
-              <article className="learn-article">
+              <article className="learn-article" ref={articleRef} tabIndex={0}
+                onWheel={() => recordReadingActivity()}
+                onKeyDown={(event) => { if (["ArrowDown", "PageDown", "End", " "].includes(event.key)) recordReadingActivity(); }}
+                onPointerUp={() => {
+                  const selection = window.getSelection();
+                  if (selection?.toString().trim() && articleRef.current?.contains(selection.anchorNode)) recordReadingActivity();
+                }}
+                onClick={(event) => { if (event.target.closest("a[href]")) recordReadingActivity(); }}>
                 <div className="learn-article-label"><FileText size={17} />{activeLesson?.lessonType === "document" ? "文档课时" : activeLesson?.lessonType === "exercise" ? "练习课时" : "图文课时"}</div>
                 {activeLesson?.lessonType === "document" ? (
                   <div className="learn-article-copy">
-                    {activeLesson.playbackUrl
-                      ? <a className="resource-link" href={activeLesson.playbackUrl} target="_blank" rel="noreferrer">打开课程文档</a>
-                      : <p>本课时文档暂不可用，请等待教师上传后重新加载。</p>}
+                    {(activeLesson.assets || []).filter((asset) => asset.playbackUrl && asset.transcodingStatus === "ready").length
+                      ? (activeLesson.assets || []).filter((asset) => asset.playbackUrl && asset.transcodingStatus === "ready").map((asset, index) => <p key={asset.id}><a className="resource-link" href={asset.playbackUrl} target="_blank" rel="noreferrer">{index === 0 ? "打开课程文档" : "打开补充文档"}：{asset.fileName || `资料 ${index + 1}`}</a></p>)
+                      : activeLesson.playbackUrl ? <a className="resource-link" href={activeLesson.playbackUrl} target="_blank" rel="noreferrer">打开课程文档</a> : <p>本课时文档暂不可用，请等待教师上传后重新加载。</p>}
                     {activeLesson.contentText && <p>{activeLesson.contentText}</p>}
                   </div>
-                ) : <div className="learn-article-copy">{activeLesson?.contentText || course.content || "本课时内容正在整理，请先结合课程目标完成自主学习与笔记。"}</div>}
+                ) : <div className="learn-article-copy">{articleText || "本课时内容正在整理，请先结合课程目标完成自主学习与笔记。"}</div>}
                 <button disabled={lessonProgress?.completed || saving || (activeLesson?.lessonType === "document" && !activeLesson.playbackUrl)} onClick={completeArticle}>
                   {lessonProgress?.completed ? <><CheckCircle2 size={17} />本课时已完成</> : <><Circle size={17} />完成本课</>}
                 </button>
@@ -364,6 +410,8 @@ export default function CourseLearningPage({ courseId, lessonId, setPage }) {
           />
 
           {notice && <p className="learn-notice" role="status">{notice}</p>}
+          {activeLesson && <PracticePanel key={`${courseId}-${activeLesson.id}`} courseId={courseId} lessonId={activeLesson.id} setPage={setPage} />}
+
           <footer className="learn-controls">
             <button disabled={!previousLesson} onClick={() => switchLesson(previousLesson)}><ChevronLeft size={18} /><span><small>上一节</small>{previousLesson?.title || "已经是第一节"}</span></button>
             <div><Clock3 size={15} /><span>本节 {activeLesson?.lessonType === "video" ? formatDuration(activeLesson.durationSeconds) : "图文学习"}</span></div>

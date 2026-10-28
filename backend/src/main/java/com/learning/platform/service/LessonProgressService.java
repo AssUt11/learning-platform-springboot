@@ -46,14 +46,16 @@ public class LessonProgressService {
 
         boolean completed;
         if ("video".equals(lessonType)) {
-            int threshold = duration <= 0 ? Integer.MAX_VALUE
-                    : Math.max(1, Math.min(Math.max(1, duration - 5), (int) Math.ceil(duration * 0.9)));
-            completed = position >= threshold;
+            completed = duration > 0 && position >= duration;
         } else {
             completed = "completed".equals(eventType);
-            if (completed) position = 1;
+            position = completed ? 1 : 0;
         }
         int progress = duration <= 0 ? 0 : Math.min(100, (int) Math.floor(position * 100.0 / duration));
+        if ("video".equals(lessonType) && position > 0 && duration > 0) progress = Math.max(1, progress);
+        if (!"video".equals(lessonType) && "reading".equals(eventType)) {
+            progress = clamp(request.getReadingProgressPercent() == null ? 1 : request.getReadingProgressPercent(), 1, 99);
+        }
         if (completed) progress = 100;
 
         jdbcTemplate.update(
@@ -109,7 +111,8 @@ public class LessonProgressService {
             }
         }
         if (lastLessonId == null && !lessons.isEmpty()) lastLessonId = lessons.get(0).getLessonId();
-        int progressPercent = lessons.isEmpty() ? 0 : Math.round(totalProgress / (float) lessons.size());
+        int progressPercent = lessons.isEmpty() ? 0 : completedLessons == lessons.size() ? 100
+                : Math.min(99, Math.round(totalProgress / (float) lessons.size()));
         return new CourseLearningProgressView(courseId, text(course.get("title")), lessons.size(),
                 completedLessons, progressPercent, totalDuration, watchedSeconds, lastLessonId, lessons);
     }

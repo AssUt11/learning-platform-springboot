@@ -125,6 +125,64 @@ public class Neo4jLearningContextService {
         return result;
     }
 
+    /** One graph transaction; MySQL remains authoritative when the graph is unavailable. */
+    public boolean syncCourseCatalog(Map<String, Object> payload) {
+        if (!enabled || System.currentTimeMillis() < retryAfterEpochMs) return false;
+        try (Session session = driver().session()) {
+            ensureSchema(session);
+            session.run("CREATE CONSTRAINT catalog_chapter_mysql_id IF NOT EXISTS FOR (c:Chapter) REQUIRE c.mysqlId IS UNIQUE").consume();
+            session.executeWrite(tx -> {
+                tx.run(new Query("""
+                        UNWIND $taxonomy AS row MERGE (n:KnowledgeNode {key:row.key})
+                        SET n.title=row.title,n.name=row.title,n.code=row.code,n.level=row.level,
+                            n.description=row.description,n.path=row.path,n.learningStage=row.learningStage,n.source='learning-platform'
+                        """, payload)).consume();
+                tx.run(new Query("""
+                        UNWIND $taxonomy AS row WITH row WHERE row.parentKey <> ''
+                        MATCH (p:KnowledgeNode {key:row.parentKey}),(n:KnowledgeNode {key:row.key})
+                        MERGE (p)-[:CONTAINS]->(n)
+                        """, payload)).consume();
+                // Retain node identities and user annotations; rebuild only relationships owned by this sync.
+                tx.run("MATCH (c:Course {source:'learning-platform'}) SET c.published=false").consume();
+                tx.run("MATCH ()-[r]->() WHERE r.managedBy='catalog-sync' DELETE r").consume();
+                tx.run(new Query("""
+                        UNWIND $courses AS row MERGE (c:Course {mysqlId:row.courseId})
+                        SET c.publicCourseId=row.publicCourseId,c.title=row.title,c.subject=row.subject,
+                            c.description=row.description,c.published=row.published,c.learningStage=row.learningStage,c.source='learning-platform',c.syncedAt=datetime()
+                        WITH c,row MATCH (d:KnowledgeNode {key:row.directionKey})
+                        MERGE (d)-[r:HAS_COURSE]->(c) SET r.managedBy='catalog-sync'
+                        """, payload)).consume();
+                tx.run(new Query("""
+                        UNWIND $chapters AS row MATCH (c:Course {mysqlId:row.courseId})
+                        MERGE (ch:Chapter {mysqlId:row.id})
+                        SET ch.title=row.title,ch.sortOrder=row.sortOrder,ch.status=row.status,ch.source='learning-platform'
+                        MERGE (c)-[r:HAS_CHAPTER]->(ch) SET r.managedBy='catalog-sync'
+                        """, payload)).consume();
+                tx.run(new Query("""
+                        UNWIND $lessons AS row MATCH (c:Course {mysqlId:row.courseId}),(ch:Chapter {mysqlId:row.chapterId})
+                        MERGE (l:Lesson {mysqlId:row.id})
+                        SET l.title=row.title,l.lessonType=row.lessonType,l.durationSeconds=row.durationSeconds,
+                            l.status=row.status,l.content=row.content,l.source='learning-platform'
+                        MERGE (ch)-[a:HAS_LESSON]->(l) SET a.managedBy='catalog-sync'
+                        MERGE (c)-[b:HAS_LESSON]->(l) SET b.managedBy='catalog-sync'
+                        """, payload)).consume();
+                tx.run(new Query("""
+                        UNWIND $topics AS row MATCH (c:Course {mysqlId:row.courseId}),(l:Lesson {mysqlId:row.lessonId}),
+                            (k:KnowledgeNode {key:row.key})
+                        MERGE (c)-[a:COVERS]->(k) SET a.managedBy='catalog-sync'
+                        MERGE (l)-[b:TEACHES]->(k) SET b.managedBy='catalog-sync'
+                        """, payload)).consume();
+                return null;
+            });
+            retryAfterEpochMs = 0L;
+            return true;
+        } catch (RuntimeException error) {
+            markUnavailable();
+            LOGGER.warn("Course catalog graph sync failed; it will be retried: {}", error.getClass().getSimpleName());
+            return false;
+        }
+    }
+
     public PrerequisiteContext findPrerequisites(String requestedTopic) {
         String topic = safe(requestedTopic);
         if (!enabled) return PrerequisiteContext.unavailable(topic, "NEO4J_DISABLED");
@@ -259,7 +317,7 @@ public class Neo4jLearningContextService {
                         + "WITH p UNWIND $nodes AS row "
                         + "MERGE (s:StudentLearningPathStep {pathId:$pathId,stepId:row.id}) "
                         + "SET s.userId=$userId,s.title=row.title,s.stepOrder=row.order,s.goal=row.goal,"
-                        + "s.completionCriteria=row.completionCriteria,s.courseId=row.courseId "
+                        + "s.completionCriteria=row.completionCriteria,s.courseId=row.courseId,s.stage=row.stage "
                         + "MERGE (p)-[:HAS_STEP]->(s)",
                         Values.parameters("pathId", pathId, "userId", userId, "title", title, "snapshot", snapshot, "nodes", nodes)).consume();
                 tx.run("MATCH (p:StudentLearningPath {pathId:$pathId,userId:$userId})-[:HAS_STEP]->(a) "

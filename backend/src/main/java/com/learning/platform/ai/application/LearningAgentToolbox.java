@@ -57,15 +57,20 @@ public class LearningAgentToolbox {
         if ("get_learning_profile".equals(name)) {
             Map<String, Object> data = new LinkedHashMap<String, Object>();
             data.put("subject", context.getSubject());
+            if (!context.getStudyIntent().isEmpty()) data.put("studyIntent", context.getStudyIntent());
             data.put("recordCount", context.getRecordCount());
             data.put("recentSevenDayRecordCount", context.getRecentRecordCount());
             data.put("averageProgress", context.getAverageProgress());
             data.put("recentRecords", limited(context.getRecentRecords(), 5));
-            return new ToolResult(data, Collections.singletonList("learning_records"), false);
+            data.put("lessonAndQuizEvidence", limited(context.getLearningEvidence(), 6));
+            data.put("evidenceRule", "progress为观看/阅读进度，quizScore为最近一次AI练习得分，null表示未测验；不得混为掌握程度。测验仅供学习参考。");
+            return new ToolResult(data, context.getLearningEvidence() == null || context.getLearningEvidence().isEmpty()
+                    ? Collections.singletonList("learning_records") : List.of("learning_records", "lesson_progress", "ai_practice_sessions"), false);
         }
         if ("get_weak_knowledge".equals(name)) {
             return new ToolResult(Map.of("weakNodes", limited(context.getWeakNodes(), 5)),
-                    Collections.singletonList("learning_records:weak_nodes"), false);
+                    context.getWeakNodes() != null && context.getWeakNodes().stream().anyMatch(row -> "课时测验".equals(row.get("source")))
+                            ? List.of("learning_records:weak_nodes", "ai_practice_sessions") : Collections.singletonList("learning_records:weak_nodes"), false);
         }
         if ("get_learning_resources".equals(name)) {
             List<Map<String, Object>> resources = limited(context.getResources(), 8);

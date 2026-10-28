@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Bot, BrainCircuit, Send, Square, ThumbsDown, ThumbsUp, UserRound } from "lucide-react";
 import { cancelAiTutorRequest, sendAiTutorFeedback, streamAiTutor } from "../api/aiTutor";
+import InkResponse from "./InkResponse";
+import useTranscriptScroll from "../utils/useTranscriptScroll";
 
 export default function AiTutorPanel({ courseId, lessonId, courseTitle, lessonTitle }) {
   const [conversationId, setConversationId] = useState(null);
@@ -14,6 +16,7 @@ export default function AiTutorPanel({ courseId, lessonId, courseTitle, lessonTi
   const abortRef = useRef(null);
   const completedRef = useRef(false);
   const requestIdRef = useRef(null);
+  const transcript = useTranscriptScroll();
 
   useEffect(() => {
     const activeRequest = requestIdRef.current;
@@ -27,6 +30,7 @@ export default function AiTutorPanel({ courseId, lessonId, courseTitle, lessonTi
     setError("");
     setStreaming(false);
     setRequestId(null);
+    transcript.followLatest();
   }, [courseId, lessonId]);
 
   useEffect(() => () => {
@@ -52,6 +56,7 @@ export default function AiTutorPanel({ courseId, lessonId, courseTitle, lessonTi
     ]);
     const controller = new AbortController();
     abortRef.current = controller;
+    transcript.followLatest();
     try {
       await streamAiTutor({
         conversationId,
@@ -61,20 +66,24 @@ export default function AiTutorPanel({ courseId, lessonId, courseTitle, lessonTi
         mode: "GUIDED_EXPLANATION"
       }, {
         signal: controller.signal,
-        onEvent: handleEvent
+        onEvent: (name, data) => {
+          if (abortRef.current === controller && !controller.signal.aborted) handleEvent(name, data);
+        }
       });
-      if (!completedRef.current) {
+      if (abortRef.current === controller && !completedRef.current) {
         setError("回答连接提前结束，请重新提问。");
         markAssistantStopped();
       }
     } catch (streamError) {
-      if (streamError?.name !== "AbortError") {
+      if (abortRef.current === controller && streamError?.name !== "AbortError") {
         setError(streamError?.message || "AI 回答暂时不可用。");
         markAssistantStopped();
       }
     } finally {
-      if (abortRef.current === controller) abortRef.current = null;
-      setStreaming(false);
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+        setStreaming(false);
+      }
     }
   };
 
@@ -109,6 +118,7 @@ export default function AiTutorPanel({ courseId, lessonId, courseTitle, lessonTi
       setMessages((current) => updateLastAssistant(current, (message) => ({
         ...message,
         generating: false,
+        status: "completed",
         messageId: data.messageId,
         neo4jUsed: !!data.neo4jUsed
       })));
@@ -126,11 +136,12 @@ export default function AiTutorPanel({ courseId, lessonId, courseTitle, lessonTi
   const stop = async () => {
     const activeRequest = requestIdRef.current || requestId;
     abortRef.current?.abort();
-    if (activeRequest) await cancelAiTutorRequest(activeRequest).catch(() => null);
+    abortRef.current = null;
     requestIdRef.current = null;
     completedRef.current = true;
-    markAssistantStopped();
+    markAssistantStopped("cancelled");
     setStreaming(false);
+    if (activeRequest) await cancelAiTutorRequest(activeRequest).catch(() => null);
   };
 
   const rate = async (messageId, rating) => {
@@ -143,8 +154,8 @@ export default function AiTutorPanel({ courseId, lessonId, courseTitle, lessonTi
     }
   };
 
-  const markAssistantStopped = () => {
-    setMessages((current) => updateLastAssistant(current, (message) => ({ ...message, generating: false })));
+  const markAssistantStopped = (status = "failed") => {
+    setMessages((current) => updateLastAssistant(current, (message) => ({ ...message, generating: false, status })));
   };
 
   return (
@@ -157,7 +168,8 @@ export default function AiTutorPanel({ courseId, lessonId, courseTitle, lessonTi
         </small>
       </header>
 
-      <div className="ai-tutor-messages" aria-live="polite">
+      <div className="ai-tutor-messages" ref={transcript.viewportRef} onScroll={transcript.onScroll} aria-live="polite" aria-busy={streaming}>
+        <div ref={transcript.contentRef}>
         {!messages.length && (
           <div className="ai-tutor-empty">
             <Bot size={25} />
@@ -169,7 +181,7 @@ export default function AiTutorPanel({ courseId, lessonId, courseTitle, lessonTi
             <div>{message.role === "assistant" ? <Bot size={17} /> : <UserRound size={17} />}</div>
             <section>
               <strong>{message.role === "assistant" ? "AI 助教" : "我"}</strong>
-              <p>{message.content || (message.generating ? "正在组织回答…" : "本次没有生成有效回答。")}</p>
+              {message.role === "assistant" ? <InkResponse content={message.content} generating={message.generating} status={message.status} /> : <p>{message.content}</p>}
               {!!message.sources?.length && (
                 <div className="ai-tutor-sources">
                   {message.sources.map((source) => <span key={`${source.sourceType}-${source.sourceId}`}>{source.sourceType === "COURSE" ? "课程" : "课时"}：{source.title}</span>)}
@@ -184,6 +196,7 @@ export default function AiTutorPanel({ courseId, lessonId, courseTitle, lessonTi
             </section>
           </article>
         ))}
+        </div>
       </div>
 
       {error && <p className="ai-tutor-error">{error}</p>}
@@ -192,7 +205,7 @@ export default function AiTutorPanel({ courseId, lessonId, courseTitle, lessonTi
           value={input}
           onChange={(event) => setInput(event.target.value.slice(0, 1000))}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
+            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
               event.currentTarget.form?.requestSubmit();
             }

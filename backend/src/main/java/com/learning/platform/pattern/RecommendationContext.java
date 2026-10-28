@@ -14,6 +14,8 @@ public class RecommendationContext {
     private final List<Map<String, Object>> weakNodes;
     private final List<Map<String, Object>> recentRecords;
     private final List<Map<String, Object>> favoriteResources;
+    private final List<Map<String, Object>> learningEvidence;
+    private final Map<String, Object> studyIntent;
 
     private RecommendationContext(Builder builder) {
         this.studentId = builder.studentId;
@@ -26,11 +28,16 @@ public class RecommendationContext {
         this.weakNodes = builder.weakNodes;
         this.recentRecords = builder.recentRecords;
         this.favoriteResources = builder.favoriteResources;
+        this.learningEvidence = builder.learningEvidence;
+        this.studyIntent = builder.studyIntent;
     }
 
     public Object getStudentId() {
         return studentId;
     }
+
+    public List<Map<String, Object>> getLearningEvidence() { return learningEvidence; }
+    public Map<String, Object> getStudyIntent() { return studyIntent; }
 
     public String getStudentName() {
         return studentName;
@@ -79,6 +86,12 @@ public class RecommendationContext {
         private List<Map<String, Object>> weakNodes;
         private List<Map<String, Object>> recentRecords;
         private List<Map<String, Object>> favoriteResources;
+        private List<Map<String, Object>> learningEvidence;
+        private Map<String, Object> studyIntent = java.util.Collections.emptyMap();
+
+        public Builder studyIntent(Map<String, Object> value) { this.studyIntent = value; return this; }
+
+        public Builder learningEvidence(List<Map<String, Object>> value) { this.learningEvidence = value; return this; }
 
         public Builder studentId(Object studentId) {
             this.studentId = studentId;

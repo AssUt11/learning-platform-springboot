@@ -14,7 +14,7 @@ import static org.mockito.Mockito.*;
 class StudentLearningPathServiceTest {
     private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
     private final Neo4jLearningContextService neo4j = mock(Neo4jLearningContextService.class);
-    private final StudentLearningPathService service = new StudentLearningPathService(jdbc, new ObjectMapper(), neo4j);
+    private final StudentLearningPathService service = new StudentLearningPathService(jdbc, new ObjectMapper(), neo4j, new AdaptiveLearningService(jdbc));
 
     @Test void cannotReadOrSyncAnotherStudentsPath() {
         when(jdbc.queryForList(anyString(), eq("someone-else"), eq(7L))).thenReturn(Collections.emptyList());
@@ -27,7 +27,8 @@ class StudentLearningPathServiceTest {
         Map<String,Object> saved = service.save(7L, new LearningAgentResult("path-a", "分析", List.of(), List.of(), false, path));
         assertEquals(false, saved.get("neo4jSynced"));
         assertEquals("snapshot", saved.get("source"));
-        assertEquals(path.get("nodes"), saved.get("nodes"));
+        assertEquals("step-1", ((List<Map<String,Object>>) saved.get("nodes")).get(0).get("id"));
+        assertEquals(List.of(Map.of("id", "step-1")), path.get("nodes"));
         verify(jdbc).update(startsWith("insert into student_learning_paths"), eq("path-a"), eq(7L), anyString());
     }
     @Test void loadsNeo4jSnapshotOnlyForTheAuthenticatedOwner() {

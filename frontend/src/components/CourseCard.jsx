@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ArrowRight, BookOpen, FileText, GitBranch, Heart, PlayCircle, Users } from "lucide-react";
 import request from "../utils/request";
 import { handleActionError } from "../utils/auth";
+import { inferLearningStage, stageLabel } from "../utils/learningStages";
 import { buildResourceTextContent } from "../utils/format";
 import { CourseVideoPreview } from "./CourseVideo";
 
@@ -43,7 +44,7 @@ export default function CourseCard({ item, onUpdate, onOpenGraph, onOpenCourse }
       </button>
       <div className="course-card-body">
         <div className="course-level-row">
-          <span>{item.difficulty || item.level || "入门"}</span>
+          <span>{item.stageLabel || stageLabel(item.learningStage || inferLearningStage(item.title, item.level))}</span>
           <span><Users size={14} /> {item.learnerCount || 0} 人在学</span>
         </div>
         <button className="course-title-button" onClick={() => onOpenCourse?.(item)}><h3>{item.title}</h3></button>

@@ -15,11 +15,15 @@ import java.util.Map;
 public class CatalogService {
     private final JdbcTemplate jdbcTemplate;
     private final CourseContentValidationService validationService;
+    private LearningStageService learningStages;
 
     public CatalogService(JdbcTemplate jdbcTemplate, CourseContentValidationService validationService) {
         this.jdbcTemplate = jdbcTemplate;
         this.validationService = validationService;
     }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setLearningStages(LearningStageService learningStages) { this.learningStages = learningStages; }
 
     public List<Map<String, Object>> categories() {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
@@ -82,6 +86,13 @@ public class CatalogService {
                                                     String difficulty,
                                                     int pageNum,
                                                     int pageSize) {
+        return courses(studentId, keyword, categoryId, directionId, type, difficulty, pageNum, pageSize, null);
+    }
+
+    public PageResult<Map<String, Object>> courses(Long studentId, String keyword, Long categoryId,
+                                                  Long directionId, String type, String difficulty,
+                                                  int pageNum, int pageSize, String learningStage) {
+        if (hasText(learningStage)) LearningStages.require(learningStage);
         int resolvedPage = Math.max(pageNum, 1);
         int resolvedSize = Math.min(Math.max(pageSize, 1), 50);
         int offset = (resolvedPage - 1) * resolvedSize;
@@ -138,10 +149,14 @@ public class CatalogService {
                 + " order by learnerCount desc,r.created_at desc,r.id desc";
         List<Map<String, Object>> candidates = jdbcTemplate.queryForList(sql, params.toArray());
         List<Map<String, Object>> visible = new ArrayList<Map<String, Object>>();
+        Map<Long, String> stageOverrides = learningStages == null ? Map.of() : learningStages.overrides();
         for (Map<String, Object> candidate : candidates) {
+            Map<String, Object> staged = new LinkedHashMap<>(candidate);
+            LearningStageService.enrich(staged, stageOverrides);
+            if (hasText(learningStage) && !learningStage.equals(staged.get("learningStage"))) continue;
             CourseContentValidationResult validation = validationService.validatePublic(number(candidate.get("id")));
             if (!validation.isContentComplete()) continue;
-            Map<String, Object> card = new LinkedHashMap<String, Object>(candidate);
+            Map<String, Object> card = staged;
             card.put("chapterCount", validation.getChapterCount());
             card.put("lessonCount", validation.getPublishedLessonCount());
             card.put("totalDurationSeconds", validation.getTotalDurationSeconds());
@@ -190,6 +205,7 @@ public class CatalogService {
             throw new BusinessException(404, "课程不存在或已下架");
         }
         Map<String, Object> matched = new LinkedHashMap<String, Object>(rows.get(0));
+        LearningStageService.enrich(matched, learningStages == null ? Map.of() : learningStages.overrides());
         boolean privileged = viewer != null && ("admin".equals(viewer.get("role"))
                 || ("teacher".equals(viewer.get("role")) && matched.get("teacherId") != null
                 && number(viewer.get("id")) == number(matched.get("teacherId"))));

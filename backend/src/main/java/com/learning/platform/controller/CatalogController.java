@@ -47,12 +47,13 @@ public class CatalogController {
             @RequestParam(required = false) Long directionId,
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String difficulty,
+            @RequestParam(required = false) String learningStage,
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "12") int pageSize) {
         Map<String, Object> user = currentUserService.optional(authorization);
         Long learnerId = learnerId(user);
         return Result.success(catalogService.courses(learnerId, keyword, categoryId, directionId,
-                type, difficulty, pageNum, pageSize));
+                type, difficulty, pageNum, pageSize, learningStage));
     }
 
     @GetMapping("/courses/{courseId}")

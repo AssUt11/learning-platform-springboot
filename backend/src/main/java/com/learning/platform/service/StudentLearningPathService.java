@@ -15,11 +15,13 @@ public class StudentLearningPathService {
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
     private final Neo4jLearningContextService neo4j;
+    private final AdaptiveLearningService adaptive;
 
-    public StudentLearningPathService(JdbcTemplate jdbc, ObjectMapper mapper, Neo4jLearningContextService neo4j) {
+    public StudentLearningPathService(JdbcTemplate jdbc, ObjectMapper mapper, Neo4jLearningContextService neo4j, AdaptiveLearningService adaptive) {
         this.jdbc = jdbc;
         this.mapper = mapper;
         this.neo4j = neo4j;
+        this.adaptive = adaptive;
     }
 
     public Map<String, Object> save(long userId, LearningAgentResult result) {
@@ -34,7 +36,7 @@ public class StudentLearningPathService {
         jdbc.update("insert into student_learning_paths(path_id,user_id,snapshot_json) values(?,?,?)",
                 result.getRequestId(), userId, json);
         boolean synced = sync(userId, snapshot, json);
-        return view(snapshot, synced, synced ? "neo4j" : "snapshot");
+        return adaptive.enrich(userId, view(snapshot, synced, synced ? "neo4j" : "snapshot"));
     }
 
     public Map<String, Object> latest(long userId) {
@@ -46,8 +48,8 @@ public class StudentLearningPathService {
     public Map<String, Object> get(long userId, String pathId) {
         Map<String, Object> row = owned(userId, pathId);
         String graphJson = neo4j.readStudentPath(userId, pathId);
-        return view(decode(graphJson == null ? String.valueOf(row.get("snapshot_json")) : graphJson),
-                ((Number) row.get("neo4j_synced")).intValue() == 1, graphJson == null ? "snapshot" : "neo4j");
+        return adaptive.enrich(userId, view(decode(graphJson == null ? String.valueOf(row.get("snapshot_json")) : graphJson),
+                ((Number) row.get("neo4j_synced")).intValue() == 1, graphJson == null ? "snapshot" : "neo4j"));
     }
 
     public Map<String, Object> retrySync(long userId, String pathId) {
@@ -55,7 +57,7 @@ public class StudentLearningPathService {
         String json = String.valueOf(row.get("snapshot_json"));
         Map<String, Object> snapshot = decode(json);
         boolean synced = sync(userId, snapshot, json);
-        return view(snapshot, synced, synced ? "neo4j" : "snapshot");
+        return adaptive.enrich(userId, view(snapshot, synced, synced ? "neo4j" : "snapshot"));
     }
 
     private Map<String, Object> owned(long userId, String pathId) {

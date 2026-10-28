@@ -9,6 +9,7 @@ import com.learning.platform.pattern.WordLearningAnalysisReportTemplate;
 import com.learning.platform.service.CurrentUserService;
 import com.learning.platform.service.CourseContentValidationService;
 import com.learning.platform.service.StudentLearningPathService;
+import com.learning.platform.service.AdaptiveLearningService;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.beans.factory.annotation.Value;
@@ -43,6 +44,8 @@ public class AgentController {
     private final CourseContentValidationService contentValidationService;
     private final AiUserRateLimiter rateLimiter;
     private final StudentLearningPathService learningPaths;
+    private final AdaptiveLearningService adaptive;
+    private final com.learning.platform.service.LearningPlanningService planning;
 
     @Value("${app.report-dir}")
     private String reportDir;
@@ -52,7 +55,8 @@ public class AgentController {
                            LearningAgentAiService agentAiService,
                            WordLearningAnalysisReportTemplate reportTemplate,
                            CourseContentValidationService contentValidationService,
-                           AiUserRateLimiter rateLimiter, StudentLearningPathService learningPaths) {
+                           AiUserRateLimiter rateLimiter, StudentLearningPathService learningPaths, AdaptiveLearningService adaptive,
+                           com.learning.platform.service.LearningPlanningService planning) {
         this.jdbcTemplate = jdbcTemplate;
         this.currentUserService = currentUserService;
         this.agentAiService = agentAiService;
@@ -60,6 +64,8 @@ public class AgentController {
         this.contentValidationService = contentValidationService;
         this.rateLimiter = rateLimiter;
         this.learningPaths = learningPaths;
+        this.adaptive = adaptive;
+        this.planning = planning;
     }
 
     @PostMapping("/guide")
@@ -283,6 +289,7 @@ public class AgentController {
     }
 
     private RecommendationContext buildContext(Map<String, Object> user) {
+        List<Map<String, Object>> feedback = adaptive.evidence(((Number) user.get("id")).longValue());
         String subject = firstPreference(user.get("id"));
         Integer count = jdbcTemplate.queryForObject("select count(*) from learning_records where student_id=?",
                 Integer.class, user.get("id"));
@@ -307,7 +314,19 @@ public class AgentController {
                         + "and r.status=1 and r.review_status='approved' and r.lifecycle_status='active' "
                         + "order by f.created_at desc limit 3",
                 user.get("id"));
-        List<Map<String, Object>> resources = recommendedResources(subject, weakNodes, favoriteResources);
+        // 优先把最新测验中的薄弱课程作为候选，仍需经过课程发布和完整性校验。
+        List<Map<String, Object>> feedbackCourses = new ArrayList<>();
+        for (Map<String, Object> item : feedback) {
+            if (!(item.get("quizScore") instanceof Number) || ((Number) item.get("quizScore")).intValue() >= 60) continue;
+            weakNodes.add(0, Map.of("node", item.get("knowledgeNode"), "subject", item.get("subject"),
+                    "quizScore", item.get("quizScore"), "source", "课时测验"));
+            feedbackCourses.addAll(jdbcTemplate.queryForList("select id,title,subject,type,level from resources where id=? and status=1 and review_status='approved' and lifecycle_status='active'", item.get("courseId")));
+            if (feedbackCourses.size() >= 3) break;
+        }
+        List<Map<String, Object>> resources = new ArrayList<>(validatedResources(feedbackCourses));
+        for (Map<String, Object> candidate : recommendedResources(subject, weakNodes, favoriteResources)) {
+            if (resources.stream().noneMatch(row -> row.get("id").equals(candidate.get("id")))) resources.add(candidate);
+        }
         return new RecommendationContext.Builder()
                 .studentId(user.get("id"))
                 .studentName(String.valueOf(user.get("name")))
@@ -319,6 +338,8 @@ public class AgentController {
                 .weakNodes(weakNodes)
                 .recentRecords(recentRecords)
                 .favoriteResources(favoriteResources)
+                .learningEvidence(feedback)
+                .studyIntent(planning.studyIntent(((Number)user.get("id")).longValue()))
                 .build();
     }
 
@@ -378,6 +399,7 @@ public class AgentController {
     }
 
     private void addAgentMetadata(Map<String, Object> response, LearningAgentResult agentResult) {
+        response.put("agentMode", agentAiService.executionMode());
         response.put("requestId", agentResult.getRequestId());
         response.put("toolsUsed", agentResult.getToolsUsed());
         response.put("sources", agentResult.getSources());

@@ -142,6 +142,7 @@ public class ResourceController {
                                               @RequestParam String subject,
                                               @RequestParam(defaultValue = "material") String type,
                                               @RequestParam(defaultValue = "入门") String level,
+                                              @RequestParam(required = false) String learningStage,
                                               @RequestParam(defaultValue = "") String description,
                                               @RequestParam(defaultValue = "") String content,
                                               @RequestParam(value = "file", required = false) MultipartFile file) throws IOException {
@@ -150,6 +151,9 @@ public class ResourceController {
         String normalizedSubject = requiredText(subject, "subject", 60);
         String normalizedType = resourceType(type);
         String normalizedLevel = requiredText(level, "level", 40);
+        String normalizedStage = text(learningStage).isEmpty()
+                ? com.learning.platform.service.LearningStages.infer(normalizedTitle, normalizedLevel)
+                : com.learning.platform.service.LearningStages.require(learningStage);
         String normalizedDescription = text(description);
         String normalizedContent = textOrDefault(content,
                 defaultContent(normalizedTitle, normalizedSubject, normalizedDescription));
@@ -176,6 +180,7 @@ public class ResourceController {
                 throw new IllegalStateException("Failed to read the new course ID.");
             }
             long resourceId = key.longValue();
+            jdbcTemplate.update("insert into course_learning_stages(resource_id,stage_code,updated_by) values(?,?,?)",resourceId,normalizedStage,user.get("id"));
             legacyCourseMigrationService.ensureStructure(resourceId);
             Map<String, Object> result = ApiResponses.ok();
             result.put("courseId", resourceId);
@@ -193,11 +198,11 @@ public class ResourceController {
             @RequestHeader(value = "Authorization", required = false) String authorization) {
         Map<String, Object> user = currentUserService.requireTeacher(authorization);
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "select r.id,r.title,r.subject,r.type,r.level,r.description,r.content,r.file_url fileUrl,"
+                "select r.id,r.title,r.subject,r.type,r.level,r.description,r.content,r.file_url fileUrl,s.stage_code learningStage,"
                         + "r.estimated_minutes minutes,r.learner_count learnerCount,r.status,"
                         + "r.review_status reviewStatus,r.review_feedback reviewFeedback,r.reviewed_at reviewedAt,"
                         + "r.created_at createdAt,r.updated_at updatedAt "
-                        + "from resources r where r.teacher_id=? order by r.updated_at desc,r.id desc",
+                        + "from resources r left join course_learning_stages s on s.resource_id=r.id where r.teacher_id=? order by r.updated_at desc,r.id desc",
                 user.get("id"));
         Map<String, Object> result = ApiResponses.ok();
         result.put("resources", rows);
@@ -206,6 +211,7 @@ public class ResourceController {
     }
 
     @PutMapping("/teacher/resources/{id}")
+    @Transactional
     public Map<String, Object> updateResource(@RequestHeader(value = "Authorization", required = false) String authorization,
                                               @PathVariable Long id,
                                               @RequestBody Map<String, Object> body) {
@@ -217,6 +223,7 @@ public class ResourceController {
         String subject = requiredText(body.get("subject"), "subject", 60);
         String type = resourceType(body.get("type"));
         String level = requiredText(textOrDefault(body.get("level"), "入门"), "level", 40);
+        String stage = body.containsKey("learningStage") ? com.learning.platform.service.LearningStages.require(body.get("learningStage")) : null;
         String description = text(body.get("description"));
         String content = textOrDefault(body.get("content"), defaultContent(title, subject, description));
         int updated = jdbcTemplate.update(
@@ -225,6 +232,7 @@ public class ResourceController {
         if (updated == 0) {
             throw new BusinessException(404, "Resource not found or cannot be edited.");
         }
+        if(stage!=null) jdbcTemplate.update("insert into course_learning_stages(resource_id,stage_code,updated_by) values(?,?,?) on duplicate key update stage_code=values(stage_code),updated_by=values(updated_by)",id,stage,user.get("id"));
         legacyCourseMigrationService.syncCourse(id.longValue());
         Map<String, Object> result = ApiResponses.ok();
         result.put("validation", validationService.validateForPublication(id.longValue()));

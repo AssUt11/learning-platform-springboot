@@ -2,6 +2,7 @@ package com.learning.platform.config;
 
 import com.learning.platform.service.LegacyCourseMigrationService;
 import com.learning.platform.service.DemoCourseInitializerService;
+import com.learning.platform.service.FoundationCourseInitializerService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.dao.DataAccessException;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,6 +17,7 @@ public class SchemaInitializer {
     private final JdbcTemplate jdbcTemplate;
     private final LegacyCourseMigrationService legacyCourseMigrationService;
     private final DemoCourseInitializerService demoCourseInitializerService;
+    private final FoundationCourseInitializerService foundationCourses;
     private final String adminEmail;
     private final String adminPassword;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
@@ -23,11 +25,13 @@ public class SchemaInitializer {
     public SchemaInitializer(JdbcTemplate jdbcTemplate,
                              LegacyCourseMigrationService legacyCourseMigrationService,
                              DemoCourseInitializerService demoCourseInitializerService,
+                             FoundationCourseInitializerService foundationCourses,
                              @Value("${app.auth.admin-email}") String adminEmail,
                              @Value("${app.auth.admin-password}") String adminPassword) {
         this.jdbcTemplate = jdbcTemplate;
         this.legacyCourseMigrationService = legacyCourseMigrationService;
         this.demoCourseInitializerService = demoCourseInitializerService;
+        this.foundationCourses = foundationCourses;
         this.adminEmail = adminEmail == null ? "" : adminEmail.trim().toLowerCase();
         this.adminPassword = adminPassword == null ? "" : adminPassword;
     }
@@ -35,6 +39,7 @@ public class SchemaInitializer {
     @PostConstruct
     public void init() {
         createTables();
+        createLearningPlanningTables();
         seedAdminAccount();
         seedCatalog();
         seedStructuredCatalog();
@@ -44,6 +49,44 @@ public class SchemaInitializer {
         backfillStructuredCatalog();
         legacyCourseMigrationService.migrateAll();
         demoCourseInitializerService.ensureDemoCourse();
+        foundationCourses.ensureCourses();
+        backfillLearningStages();
+    }
+
+    private void createLearningPlanningTables() {
+        jdbcTemplate.execute("""
+            create table if not exists course_learning_stages (
+              resource_id bigint primary key,stage_code varchar(20) not null,updated_by bigint null,
+              updated_at timestamp not null default current_timestamp on update current_timestamp,
+              constraint fk_stage_resource foreign key(resource_id) references resources(id) on delete cascade
+            ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci
+            """);
+        jdbcTemplate.execute("""
+            create table if not exists student_learning_profiles (
+              user_id bigint primary key,answers_json text not null,status varchar(20) not null default 'draft',
+              version int not null default 1,active_path_id varchar(64) null,
+              updated_at timestamp not null default current_timestamp on update current_timestamp,
+              constraint fk_profile_user foreign key(user_id) references users(id) on delete cascade
+            ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci
+            """);
+        jdbcTemplate.execute("""
+            create table if not exists learning_plan_previews (
+              preview_id varchar(64) primary key,user_id bigint not null,profile_version int not null,
+              result_json longtext not null,created_at timestamp not null default current_timestamp,
+              index idx_preview_user(user_id,created_at),
+              constraint fk_preview_user foreign key(user_id) references users(id) on delete cascade
+            ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci
+            """);
+    }
+
+    private void backfillLearningStages() {
+        for (java.util.Map<String, Object> row : jdbcTemplate.queryForList("""
+                select r.id,r.title,r.level from resources r
+                left join course_learning_stages s on s.resource_id=r.id where s.resource_id is null
+                """)) {
+            jdbcTemplate.update("insert ignore into course_learning_stages(resource_id,stage_code) values(?,?)",
+                    row.get("id"), com.learning.platform.service.LearningStages.infer(row.get("title"), row.get("level")));
+        }
     }
 
     private void createTables() {

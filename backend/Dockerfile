@@ -7,7 +7,7 @@ RUN mvn -q -DskipTests package
 
 FROM eclipse-temurin:17-jre
 WORKDIR /app
-COPY --from=build /workspace/target/learning-platform-1.0.0.jar app.jar
+COPY --from=build /workspace/target/learning-platform-1.1.0-rc.1.jar app.jar
 RUN mkdir -p /app/uploads /app/reports
 EXPOSE 8081
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]
