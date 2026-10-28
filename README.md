@@ -2,6 +2,8 @@
 
 知度学习围绕“课程分类 → 课程学习 → 智慧图谱 → 社区反馈 → 学习分析”构建学习闭环。系统包含学生端、教师端和管理员端，保留 React + Vite、Spring Boot 2.7、Java 17、JdbcTemplate、MySQL 和 Neo4j 技术栈，并提供可直接构建发布的 Docker Compose 编排。
 
+当前迭代版本：**v1.1.0-rc.1**（候选版，PR #1 待合并）。[版本发布页](https://github.com/AssUt11/learning-platform-springboot/releases)提供版本标签、说明和源码下载。
+
 ## 目录结构
 
 项目版本演进见 [迭代记录](CHANGELOG.md)，每轮更新的详细差异保留在 GitHub 提交与 PR 中。
@@ -73,7 +75,7 @@ npm run dev
 
 ```powershell
 mvn -f backend/pom.xml clean package
-java -jar backend/target/learning-platform-1.0.0.jar
+java -jar backend/target/learning-platform-1.1.0-rc.1.jar
 ```
 
 Maven 会执行后端测试、构建前端并将页面嵌入 JAR，打包后可直接访问 `http://localhost:8081`。根目录 `mvnw.cmd` 是本机 `.tools` 目录的辅助启动脚本，不是标准 Maven Wrapper；其他电脑请使用已安装的 `mvn`。
