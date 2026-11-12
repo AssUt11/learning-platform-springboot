@@ -8,7 +8,9 @@ async function mockApi(page, handlePreferences) {
     if (!path.startsWith("/api/")) return route.continue();
     if (path === "/api/preferences" && handlePreferences) return handlePreferences(route);
     if (path === "/api/auth/login") {
-      return route.fulfill({ json: { user: student, token: "navigation-token", needsInterestSelection: false } });
+      return route.fulfill({
+        json: { user: student, token: "navigation-token", needsInterestSelection: false }
+      });
     }
     let data = {};
     if (path === "/api/preferences") data = { subjects: ["Java"] };
@@ -41,9 +43,13 @@ for (const status of [401, 200]) {
   test(`重启后旧登录失效（HTTP ${status}）停留在登录页，重新登录无需刷新`, async ({ page }) => {
     await restoreSession(page);
     let expired = true;
-    await mockApi(page, (route) => route.fulfill(expired
-      ? { status, json: { code: 401, message: "Please log in first" } }
-      : { json: { code: 200, data: { subjects: ["Java"] } } }));
+    await mockApi(page, (route) =>
+      route.fulfill(
+        expired
+          ? { status, json: { code: 401, message: "Please log in first" } }
+          : { json: { code: 200, data: { subjects: ["Java"] } } }
+      )
+    );
     await page.goto("/home");
     await expect(loginHeading(page)).toBeVisible();
     await expect(page).toHaveURL(/\/login$/);
@@ -62,7 +68,9 @@ for (const status of [401, 200]) {
 
 test("登录后偏好尚未加载也能进入首页并切换页面", async ({ page }) => {
   let release;
-  const pending = new Promise((resolve) => { release = resolve; });
+  const pending = new Promise((resolve) => {
+    release = resolve;
+  });
   await mockApi(page, async (route) => {
     await pending;
     await route.fulfill({ json: { code: 200, data: { subjects: ["Java"] } } });
@@ -81,7 +89,9 @@ test("登录后偏好尚未加载也能进入首页并切换页面", async ({ pa
 });
 
 test("登录后偏好返回401不会被失败回调送回无登录状态的首页", async ({ page }) => {
-  await mockApi(page, (route) => route.fulfill({ status: 401, json: { message: "Please log in first" } }));
+  await mockApi(page, (route) =>
+    route.fulfill({ status: 401, json: { message: "Please log in first" } })
+  );
   await login(page);
   await expect(loginHeading(page)).toBeVisible();
   await expect(page.getByRole("alert")).toContainText("登录状态已失效");
@@ -93,7 +103,9 @@ test("退出后迟到的偏好响应不会恢复旧账号的数据或跳转", as
   await restoreSession(page);
   let release;
   let requested = false;
-  const pending = new Promise((resolve) => { release = resolve; });
+  const pending = new Promise((resolve) => {
+    release = resolve;
+  });
   await mockApi(page, async (route) => {
     requested = true;
     await pending;
@@ -110,7 +122,9 @@ test("退出后迟到的偏好响应不会恢复旧账号的数据或跳转", as
     await response;
     await expect(loginHeading(page)).toBeVisible();
     await expect(page).toHaveURL(/\/login$/);
-    await expect.poll(() => page.evaluate(() => localStorage.getItem("learning_preferences"))).toBeNull();
+    await expect
+      .poll(() => page.evaluate(() => localStorage.getItem("learning_preferences")))
+      .toBeNull();
   } finally {
     release();
   }
@@ -125,7 +139,12 @@ for (const animationFailure of ["throws", "stalled"]) {
       document.startViewTransition = () => {
         if (failure === "throws") throw new Error("浏览器过渡动画初始化失败");
         const pending = new Promise(() => {});
-        return { updateCallbackDone: pending, ready: pending, finished: pending, skipTransition() {} };
+        return {
+          updateCallbackDone: pending,
+          ready: pending,
+          finished: pending,
+          skipTransition() {}
+        };
       };
     }, animationFailure);
     await mockApi(page);

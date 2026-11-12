@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Bot, BrainCircuit, Send, Square, ThumbsDown, ThumbsUp, UserRound } from "lucide-react";
 import { cancelAiTutorRequest, sendAiTutorFeedback, streamAiTutor } from "../api/aiTutor";
 import InkResponse from "./InkResponse";
+import CoursewareSources from "./CoursewareSources";
 import useTranscriptScroll from "../utils/useTranscriptScroll";
 
 export default function AiTutorPanel({ courseId, lessonId, courseTitle, lessonTitle }) {
@@ -33,11 +34,14 @@ export default function AiTutorPanel({ courseId, lessonId, courseTitle, lessonTi
     transcript.followLatest();
   }, [courseId, lessonId]);
 
-  useEffect(() => () => {
-    const activeRequest = requestIdRef.current;
-    abortRef.current?.abort();
-    if (activeRequest) cancelAiTutorRequest(activeRequest).catch(() => {});
-  }, []);
+  useEffect(
+    () => () => {
+      const activeRequest = requestIdRef.current;
+      abortRef.current?.abort();
+      if (activeRequest) cancelAiTutorRequest(activeRequest).catch(() => {});
+    },
+    []
+  );
 
   const submit = async (event) => {
     event.preventDefault();
@@ -58,18 +62,22 @@ export default function AiTutorPanel({ courseId, lessonId, courseTitle, lessonTi
     abortRef.current = controller;
     transcript.followLatest();
     try {
-      await streamAiTutor({
-        conversationId,
-        courseId,
-        lessonId,
-        message: question,
-        mode: "GUIDED_EXPLANATION"
-      }, {
-        signal: controller.signal,
-        onEvent: (name, data) => {
-          if (abortRef.current === controller && !controller.signal.aborted) handleEvent(name, data);
+      await streamAiTutor(
+        {
+          conversationId,
+          courseId,
+          lessonId,
+          message: question,
+          mode: "GUIDED_EXPLANATION"
+        },
+        {
+          signal: controller.signal,
+          onEvent: (name, data) => {
+            if (abortRef.current === controller && !controller.signal.aborted)
+              handleEvent(name, data);
+          }
         }
-      });
+      );
       if (abortRef.current === controller && !completedRef.current) {
         setError("回答连接提前结束，请重新提问。");
         markAssistantStopped();
@@ -101,27 +109,33 @@ export default function AiTutorPanel({ courseId, lessonId, courseTitle, lessonTi
       setKnowledgeSource(data.knowledgeSource || "mysql");
     }
     if (event === "message.delta") {
-      setMessages((current) => updateLastAssistant(current, (message) => ({
-        ...message,
-        content: `${message.content || ""}${data.content || ""}`
-      })));
+      setMessages((current) =>
+        updateLastAssistant(current, (message) => ({
+          ...message,
+          content: `${message.content || ""}${data.content || ""}`
+        }))
+      );
     }
     if (event === "citation.added") {
-      setMessages((current) => updateLastAssistant(current, (message) => ({
-        ...message,
-        sources: [...(message.sources || []), data]
-      })));
+      setMessages((current) =>
+        updateLastAssistant(current, (message) => ({
+          ...message,
+          sources: [...(message.sources || []), data]
+        }))
+      );
     }
     if (event === "message.completed") {
       completedRef.current = true;
       requestIdRef.current = null;
-      setMessages((current) => updateLastAssistant(current, (message) => ({
-        ...message,
-        generating: false,
-        status: "completed",
-        messageId: data.messageId,
-        neo4jUsed: !!data.neo4jUsed
-      })));
+      setMessages((current) =>
+        updateLastAssistant(current, (message) => ({
+          ...message,
+          generating: false,
+          status: "completed",
+          messageId: data.messageId,
+          neo4jUsed: !!data.neo4jUsed
+        }))
+      );
       setStreaming(false);
     }
     if (event === "error") {
@@ -155,47 +169,84 @@ export default function AiTutorPanel({ courseId, lessonId, courseTitle, lessonTi
   };
 
   const markAssistantStopped = (status = "failed") => {
-    setMessages((current) => updateLastAssistant(current, (message) => ({ ...message, generating: false, status })));
+    setMessages((current) =>
+      updateLastAssistant(current, (message) => ({ ...message, generating: false, status }))
+    );
   };
 
   return (
     <section className="ai-tutor-panel" aria-label="AI 伴学">
       <header className="ai-tutor-head">
-        <div className="ai-tutor-mark"><BrainCircuit size={20} /></div>
-        <div><strong>AI 伴学</strong><span>围绕“{lessonTitle || "当前课时"}”答疑</span></div>
+        <div className="ai-tutor-mark">
+          <BrainCircuit size={20} />
+        </div>
+        <div>
+          <strong>AI 伴学</strong>
+          <span>围绕“{lessonTitle || "当前课时"}”答疑</span>
+        </div>
         <small className={knowledgeSource.includes("neo4j") ? "graph-on" : ""}>
           {knowledgeSource.includes("neo4j") ? "Neo4j 图谱增强" : "课程资料模式"}
         </small>
       </header>
 
-      <div className="ai-tutor-messages" ref={transcript.viewportRef} onScroll={transcript.onScroll} aria-live="polite" aria-busy={streaming}>
+      <div
+        className="ai-tutor-messages"
+        ref={transcript.viewportRef}
+        onScroll={transcript.onScroll}
+        aria-live="polite"
+        aria-busy={streaming}
+      >
         <div ref={transcript.contentRef}>
-        {!messages.length && (
-          <div className="ai-tutor-empty">
-            <Bot size={25} />
-            <div><strong>有什么没听懂？</strong><p>我会结合 {courseTitle || "本课程"} 的当前课时和知识图谱给出提示与例子。</p></div>
-          </div>
-        )}
-        {messages.map((message, index) => (
-          <article className={`ai-tutor-message ${message.role}`} key={`${message.role}-${index}`}>
-            <div>{message.role === "assistant" ? <Bot size={17} /> : <UserRound size={17} />}</div>
-            <section>
-              <strong>{message.role === "assistant" ? "AI 助教" : "我"}</strong>
-              {message.role === "assistant" ? <InkResponse content={message.content} generating={message.generating} status={message.status} /> : <p>{message.content}</p>}
-              {!!message.sources?.length && (
-                <div className="ai-tutor-sources">
-                  {message.sources.map((source) => <span key={`${source.sourceType}-${source.sourceId}`}>{source.sourceType === "COURSE" ? "课程" : "课时"}：{source.title}</span>)}
-                </div>
-              )}
-              {message.role === "assistant" && message.messageId && (
-                <footer>
-                  <button className={feedback[message.messageId] === 1 ? "active" : ""} onClick={() => rate(message.messageId, 1)} aria-label="回答有帮助"><ThumbsUp size={13} /></button>
-                  <button className={feedback[message.messageId] === -1 ? "active" : ""} onClick={() => rate(message.messageId, -1)} aria-label="回答需改进"><ThumbsDown size={13} /></button>
-                </footer>
-              )}
-            </section>
-          </article>
-        ))}
+          {!messages.length && (
+            <div className="ai-tutor-empty">
+              <Bot size={25} />
+              <div>
+                <strong>有什么没听懂？</strong>
+                <p>我会结合 {courseTitle || "本课程"} 的当前课时和知识图谱给出提示与例子。</p>
+              </div>
+            </div>
+          )}
+          {messages.map((message, index) => (
+            <article
+              className={`ai-tutor-message ${message.role}`}
+              key={`${message.role}-${index}`}
+            >
+              <div>
+                {message.role === "assistant" ? <Bot size={17} /> : <UserRound size={17} />}
+              </div>
+              <section>
+                <strong>{message.role === "assistant" ? "AI 助教" : "我"}</strong>
+                {message.role === "assistant" ? (
+                  <InkResponse
+                    content={message.content}
+                    generating={message.generating}
+                    status={message.status}
+                  />
+                ) : (
+                  <p>{message.content}</p>
+                )}
+                <CoursewareSources sources={message.sources} courseId={courseId} lessonId={lessonId} />
+                {message.role === "assistant" && message.messageId && (
+                  <footer>
+                    <button
+                      className={feedback[message.messageId] === 1 ? "active" : ""}
+                      onClick={() => rate(message.messageId, 1)}
+                      aria-label="回答有帮助"
+                    >
+                      <ThumbsUp size={13} />
+                    </button>
+                    <button
+                      className={feedback[message.messageId] === -1 ? "active" : ""}
+                      onClick={() => rate(message.messageId, -1)}
+                      aria-label="回答需改进"
+                    >
+                      <ThumbsDown size={13} />
+                    </button>
+                  </footer>
+                )}
+              </section>
+            </article>
+          ))}
         </div>
       </div>
 
@@ -214,11 +265,21 @@ export default function AiTutorPanel({ courseId, lessonId, courseTitle, lessonTi
           disabled={streaming}
           maxLength={1000}
         />
-        {streaming
-          ? <button className="stop" type="button" onClick={stop}><Square size={15} />停止</button>
-          : <button type="submit" disabled={!input.trim()}><Send size={15} />发送</button>}
+        {streaming ? (
+          <button className="stop" type="button" onClick={stop}>
+            <Square size={15} />
+            停止
+          </button>
+        ) : (
+          <button type="submit" disabled={!input.trim()}>
+            <Send size={15} />
+            发送
+          </button>
+        )}
       </form>
-      <p className="ai-tutor-disclaimer">AI 内容可能有误，请结合课件和教师讲解判断；AI 不会修改成绩或学习记录。</p>
+      <p className="ai-tutor-disclaimer">
+        AI 内容可能有误，请结合课件和教师讲解判断；AI 不会修改成绩或学习记录。
+      </p>
     </section>
   );
 }

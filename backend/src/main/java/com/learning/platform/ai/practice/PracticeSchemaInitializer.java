@@ -1,20 +1,25 @@
 package com.learning.platform.ai.practice;
 
+import javax.annotation.PostConstruct;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
-import javax.annotation.PostConstruct;
 
 /** 练习独立存储，不把答题成绩当作视频进度，也不改写教师课程内容。 */
 @Component
 @DependsOn("schemaInitializer")
 public class PracticeSchemaInitializer {
+
     private final JdbcTemplate jdbc;
-    public PracticeSchemaInitializer(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+
+    public PracticeSchemaInitializer(JdbcTemplate jdbc) {
+        this.jdbc = jdbc;
+    }
 
     @PostConstruct
     public void initialize() {
-        jdbc.execute("""
+        jdbc.execute(
+            """
             create table if not exists ai_practice_sessions (
               id bigint primary key auto_increment,
               quiz_id varchar(36) not null unique,
@@ -22,6 +27,7 @@ public class PracticeSchemaInitializer {
               course_id bigint not null,
               lesson_id bigint not null,
               difficulty varchar(20) not null,
+              practice_scope varchar(20) not null default 'lesson',
               questions_json mediumtext not null,
               answers_json text null,
               score int null,
@@ -34,6 +40,14 @@ public class PracticeSchemaInitializer {
               constraint fk_practice_course foreign key(course_id) references resources(id) on delete restrict,
               constraint fk_practice_lesson foreign key(lesson_id) references course_lessons(id) on delete restrict
             ) engine=InnoDB default charset=utf8mb4 collate=utf8mb4_unicode_ci
-            """);
+            """
+        );
+        Integer scopeColumn = jdbc.queryForObject(
+            "select count(*) from information_schema.columns where table_schema=database() and table_name='ai_practice_sessions' and column_name='practice_scope'",
+            Integer.class
+        );
+        if (scopeColumn == null || scopeColumn == 0) jdbc.execute(
+            "alter table ai_practice_sessions add column practice_scope varchar(20) not null default 'lesson', add index idx_practice_course_scope(user_id,course_id,practice_scope,id)"
+        );
     }
 }

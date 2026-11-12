@@ -1,6 +1,7 @@
 package com.learning.platform.common;
 
 public class Result<T> {
+
     private final int code;
     private final String message;
     private final T data;

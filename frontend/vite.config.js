@@ -10,7 +10,8 @@ export default defineConfig({
     proxy: {
       "/api": {
         target: backendTarget,
-        changeOrigin: true
+        changeOrigin: true,
+        xfwd: true
       },
       "/uploads": {
         target: backendTarget,

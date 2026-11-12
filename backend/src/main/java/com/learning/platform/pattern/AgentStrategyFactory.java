@@ -1,13 +1,13 @@
 package com.learning.platform.pattern;
 
-import org.springframework.stereotype.Service;
-
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.stereotype.Service;
 
 @Service
 public class AgentStrategyFactory {
+
     private final Map<String, AgentStrategy> strategies = new HashMap<String, AgentStrategy>();
 
     public AgentStrategyFactory(List<AgentStrategy> strategyList) {

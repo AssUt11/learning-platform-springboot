@@ -59,11 +59,13 @@ function dispatchBlock(block, onEvent) {
   onEvent(event, payload);
 }
 
-export const cancelAiTutorRequest = (requestId) => request(`/ai/requests/${requestId}/cancel`, {
-  method: "POST"
-});
+export const cancelAiTutorRequest = (requestId) =>
+  request(`/ai/requests/${requestId}/cancel`, {
+    method: "POST"
+  });
 
-export const sendAiTutorFeedback = (messageId, rating, reason = "") => request(
-  `/ai/messages/${messageId}/feedback`,
-  { method: "POST", body: JSON.stringify({ rating, reason }) }
-);
+export const sendAiTutorFeedback = (messageId, rating, reason = "") =>
+  request(`/ai/messages/${messageId}/feedback`, {
+    method: "POST",
+    body: JSON.stringify({ rating, reason })
+  });

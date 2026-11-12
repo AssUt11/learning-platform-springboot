@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Map;
 
 public class RecommendationContext {
+
     private final Object studentId;
     private final String studentName;
     private final String subject;
@@ -36,8 +37,13 @@ public class RecommendationContext {
         return studentId;
     }
 
-    public List<Map<String, Object>> getLearningEvidence() { return learningEvidence; }
-    public Map<String, Object> getStudyIntent() { return studyIntent; }
+    public List<Map<String, Object>> getLearningEvidence() {
+        return learningEvidence;
+    }
+
+    public Map<String, Object> getStudyIntent() {
+        return studyIntent;
+    }
 
     public String getStudentName() {
         return studentName;
@@ -76,6 +82,7 @@ public class RecommendationContext {
     }
 
     public static class Builder {
+
         private Object studentId;
         private String studentName;
         private String subject = "Java";
@@ -89,9 +96,15 @@ public class RecommendationContext {
         private List<Map<String, Object>> learningEvidence;
         private Map<String, Object> studyIntent = java.util.Collections.emptyMap();
 
-        public Builder studyIntent(Map<String, Object> value) { this.studyIntent = value; return this; }
+        public Builder studyIntent(Map<String, Object> value) {
+            this.studyIntent = value;
+            return this;
+        }
 
-        public Builder learningEvidence(List<Map<String, Object>> value) { this.learningEvidence = value; return this; }
+        public Builder learningEvidence(List<Map<String, Object>> value) {
+            this.learningEvidence = value;
+            return this;
+        }
 
         public Builder studentId(Object studentId) {
             this.studentId = studentId;

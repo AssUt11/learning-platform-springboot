@@ -2,18 +2,18 @@ package com.learning.platform.controller;
 
 import com.learning.platform.common.Result;
 import com.learning.platform.service.CurrentUserService;
+import java.util.List;
+import java.util.Map;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
-import java.util.Map;
-
 @RestController
 @RequestMapping("/api/learning")
 public class KnowledgeProgressController {
+
     private final JdbcTemplate jdbc;
     private final CurrentUserService users;
 
@@ -24,12 +24,15 @@ public class KnowledgeProgressController {
 
     @GetMapping("/knowledge-progress")
     public Result<List<Map<String, Object>>> progress(
-            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        @RequestHeader(value = "Authorization", required = false) String authorization
+    ) {
         Object userId = users.requireLearner(authorization).get("id");
         // Only actual lesson progress counts; historical graph clicks/manual marks are not evidence of study.
-        return Result.success(jdbc.queryForList("""
+        return Result.success(
+            jdbc.queryForList(
+                """
                 select subject,knowledgeNode,max(progress) progress from (
-                  select coalesce(d.name,r.subject) subject,l.title knowledgeNode,
+                  select coalesce(kt.direction_name,d.name,r.subject) subject,coalesce(kt.topic_title,l.title) knowledgeNode,
                     case when l.lesson_type='video' then
                       case when coalesce(nullif(l.duration_seconds,0),p.duration_seconds,0)>0
                           and p.last_position_seconds>0 then
@@ -44,9 +47,15 @@ public class KnowledgeProgressController {
                   join courses c on c.id=ch.course_id
                   join resources r on r.id=c.legacy_resource_id
                   left join directions d on d.id=r.direction_id
+                  cross join (select 0 mapped union all select 1 mapped) variant
+                  left join lesson_knowledge_topics kt on variant.mapped=1 and kt.lesson_id=l.id
                   where p.user_id=? and l.status='published' and ch.status='published'
                     and r.status=1 and r.review_status='approved' and r.lifecycle_status='active'
+                    and (variant.mapped=0 or kt.lesson_id is not null)
                 ) points group by subject,knowledgeNode
-                """, userId));
+                """,
+                userId
+            )
+        );
     }
 }

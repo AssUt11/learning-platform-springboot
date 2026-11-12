@@ -1,4 +1,3 @@
 package com.learning.platform.dto;
 
-public class UpdateLessonRequest extends CreateLessonRequest {
-}
+public class UpdateLessonRequest extends CreateLessonRequest {}

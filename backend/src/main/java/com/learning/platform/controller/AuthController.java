@@ -2,6 +2,13 @@ package com.learning.platform.controller;
 
 import com.learning.platform.exception.BusinessException;
 import com.learning.platform.service.TokenService;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -12,20 +19,14 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.regex.Pattern;
-
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
+
     private static final Pattern EMAIL_PATTERN = Pattern.compile(
-            "^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+$",
-            Pattern.CASE_INSENSITIVE);
+        "^[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?(?:\\.[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?)+$",
+        Pattern.CASE_INSENSITIVE
+    );
     private static final int MINIMUM_PASSWORD_CHARACTERS = 8;
     private static final int MAXIMUM_BCRYPT_PASSWORD_BYTES = 72;
 
@@ -34,14 +35,20 @@ public class AuthController {
     private final byte[] teacherRegistrationCode;
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
 
-    public AuthController(JdbcTemplate jdbcTemplate,
-                          TokenService tokenService,
-                          @Value("${app.auth.teacher-registration-code}") String teacherRegistrationCode) {
+    public AuthController(
+        JdbcTemplate jdbcTemplate,
+        TokenService tokenService,
+        @Value("${app.auth.teacher-registration-code}") String teacherRegistrationCode
+    ) {
         this.jdbcTemplate = jdbcTemplate;
         this.tokenService = tokenService;
-        this.teacherRegistrationCode = text(teacherRegistrationCode).getBytes(StandardCharsets.UTF_8);
+        this.teacherRegistrationCode = text(teacherRegistrationCode).getBytes(
+            StandardCharsets.UTF_8
+        );
         if (this.teacherRegistrationCode.length < 8) {
-            throw new IllegalStateException("app.auth.teacher-registration-code must contain at least 8 bytes.");
+            throw new IllegalStateException(
+                "app.auth.teacher-registration-code must contain at least 8 bytes."
+            );
         }
     }
 
@@ -64,19 +71,32 @@ public class AuthController {
             requireTeacherRegistrationCode(body.get("teacherRegistrationCode"));
         }
 
-        Integer count = jdbcTemplate.queryForObject("select count(*) from users where email=?", Integer.class, email);
+        Integer count = jdbcTemplate.queryForObject(
+            "select count(*) from users where email=?",
+            Integer.class,
+            email
+        );
         if (count != null && count > 0) {
             throw new BusinessException(409, "Email already exists.");
         }
 
         try {
-            jdbcTemplate.update("insert into users(name,email,password_hash,role) values(?,?,?,?)",
-                    name, email, encoder.encode(password), role);
+            jdbcTemplate.update(
+                "insert into users(name,email,password_hash,role) values(?,?,?,?)",
+                name,
+                email,
+                encoder.encode(password),
+                role
+            );
         } catch (DuplicateKeyException exception) {
             throw new BusinessException(409, "Email already exists.");
         }
 
-        Long id = jdbcTemplate.queryForObject("select id from users where email=?", Long.class, email);
+        Long id = jdbcTemplate.queryForObject(
+            "select id from users where email=?",
+            Long.class,
+            email
+        );
         Map<String, Object> user = userMap(id, name, email, role);
         Map<String, Object> result = response(user);
         result.put("needsInterestSelection", "student".equals(role));
@@ -89,20 +109,33 @@ public class AuthController {
         String email = normalizedEmail(body.get("email"));
         String password = body.get("password");
         validateEmail(email);
-        if (password == null || password.isEmpty()
-                || password.getBytes(StandardCharsets.UTF_8).length > MAXIMUM_BCRYPT_PASSWORD_BYTES) {
+        if (
+            password == null ||
+            password.isEmpty() ||
+            password.getBytes(StandardCharsets.UTF_8).length > MAXIMUM_BCRYPT_PASSWORD_BYTES
+        ) {
             throw new BusinessException(400, "Email and password are required.");
         }
 
         List<Map<String, Object>> users = jdbcTemplate.queryForList(
-                "select id,name,email,password_hash,role from users where email=?", email);
-        if (users.isEmpty() || !encoder.matches(password, String.valueOf(users.get(0).get("password_hash")))) {
+            "select id,name,email,password_hash,role,avatar_url from users where email=?",
+            email
+        );
+        if (
+            users.isEmpty() ||
+            !encoder.matches(password, String.valueOf(users.get(0).get("password_hash")))
+        ) {
             throw new BusinessException(401, "Email or password is incorrect.");
         }
 
         Map<String, Object> row = users.get(0);
-        Map<String, Object> user = userMap(((Number) row.get("id")).longValue(),
-                String.valueOf(row.get("name")), String.valueOf(row.get("email")), String.valueOf(row.get("role")));
+        Map<String, Object> user = userMap(
+            ((Number) row.get("id")).longValue(),
+            String.valueOf(row.get("name")),
+            String.valueOf(row.get("email")),
+            String.valueOf(row.get("role"))
+        );
+        user.put("avatarUrl", row.get("avatar_url") == null ? "" : row.get("avatar_url"));
         Map<String, Object> result = response(user);
         if ("student".equals(user.get("role"))) {
             result.put("needsInterestSelection", !hasPreferences(user.get("id")));
@@ -119,18 +152,28 @@ public class AuthController {
     private void validateEmail(String email) {
         int separator = email.indexOf('@');
         String localPart = separator > 0 ? email.substring(0, separator) : "";
-        if (email.isEmpty() || email.length() > 120
-                || localPart.startsWith(".") || localPart.endsWith(".") || localPart.contains("..")
-                || !EMAIL_PATTERN.matcher(email).matches()) {
+        if (
+            email.isEmpty() ||
+            email.length() > 120 ||
+            localPart.startsWith(".") ||
+            localPart.endsWith(".") ||
+            localPart.contains("..") ||
+            !EMAIL_PATTERN.matcher(email).matches()
+        ) {
             throw new BusinessException(400, "Please provide a valid email address.");
         }
     }
 
     private void validatePassword(String password) {
-        if (password == null
-                || password.codePointCount(0, password.length()) < MINIMUM_PASSWORD_CHARACTERS
-                || password.getBytes(StandardCharsets.UTF_8).length > MAXIMUM_BCRYPT_PASSWORD_BYTES) {
-            throw new BusinessException(400, "Password must be at least 8 characters and at most 72 UTF-8 bytes.");
+        if (
+            password == null ||
+            password.codePointCount(0, password.length()) < MINIMUM_PASSWORD_CHARACTERS ||
+            password.getBytes(StandardCharsets.UTF_8).length > MAXIMUM_BCRYPT_PASSWORD_BYTES
+        ) {
+            throw new BusinessException(
+                400,
+                "Password must be at least 8 characters and at most 72 UTF-8 bytes."
+            );
         }
     }
 
@@ -169,7 +212,10 @@ public class AuthController {
 
     private boolean hasPreferences(Object studentId) {
         Integer count = jdbcTemplate.queryForObject(
-                "select count(*) from student_preferences where student_id=?", Integer.class, studentId);
+            "select count(*) from student_preferences where student_id=?",
+            Integer.class,
+            studentId
+        );
         return count != null && count > 0;
     }
 

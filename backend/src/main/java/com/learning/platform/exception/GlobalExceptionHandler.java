@@ -12,29 +12,38 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
     private static final Logger LOGGER = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<Result<Void>> handleBusiness(BusinessException exception) {
-        return ResponseEntity.status(httpStatus(exception.getCode()))
-                .body(Result.failure(exception.getCode(), exception.getMessage()));
+        return ResponseEntity.status(httpStatus(exception.getCode())).body(
+            Result.failure(exception.getCode(), exception.getMessage())
+        );
     }
 
-    @ExceptionHandler({IllegalArgumentException.class, MissingServletRequestParameterException.class})
+    @ExceptionHandler({
+        IllegalArgumentException.class,
+        MissingServletRequestParameterException.class
+    })
     public ResponseEntity<Result<Void>> handleBadRequest(Exception exception) {
         return ResponseEntity.badRequest().body(Result.failure(400, exception.getMessage()));
     }
 
     @ExceptionHandler(ClientAbortException.class)
     public void handleClientAbort(ClientAbortException exception) {
-        LOGGER.debug("Client disconnected before the response completed: {}", exception.getMessage());
+        LOGGER.debug(
+            "Client disconnected before the response completed: {}",
+            exception.getMessage()
+        );
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Result<Void>> handleException(Exception exception) {
         LOGGER.error("Unhandled request exception", exception);
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(Result.failure(500, "系统暂时不可用，请稍后重试"));
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+            Result.failure(500, "系统暂时不可用，请稍后重试")
+        );
     }
 
     private HttpStatus httpStatus(int code) {

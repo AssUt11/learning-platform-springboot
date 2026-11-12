@@ -1,15 +1,14 @@
 package com.learning.platform.service;
 
-import com.learning.platform.exception.BusinessException;
-import org.junit.jupiter.api.Test;
-
-import java.util.HashMap;
-import java.util.Map;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+
+import com.learning.platform.exception.BusinessException;
+import java.util.HashMap;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
 
 class CurrentUserServiceTest {
 

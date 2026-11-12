@@ -8,23 +8,27 @@
   color: #fff;
   background: var(--knowledge-completed);
   border: 2px solid var(--knowledge-completed-dark);
-  box-shadow: 0 10px 26px #49796b26;
+  box-shadow: none;
 }
 .graph-page .graph-stage :is(.graph-node, .center-node).learning-completed:is(.active, :hover) {
   color: #fff;
   background: var(--knowledge-completed-dark);
-  box-shadow: 0 0 0 5px #49796b24, 0 12px 26px #49796b2b;
+  box-shadow: none;
+  outline: 2px solid var(--knowledge-completed);
+  outline-offset: 3px;
 }
 .graph-page .graph-stage :is(.graph-node, .center-node).learning-in-progress {
   color: #805c2a;
   background: #faf2df;
   border: 2px solid #c8a66b;
-  box-shadow: 0 10px 24px #a47c3520;
+  box-shadow: none;
 }
 .graph-page .graph-stage :is(.graph-node, .center-node).learning-in-progress:is(.active, :hover) {
   color: #6b491e;
   background: #f3e5c6;
-  box-shadow: 0 0 0 5px #c8a66b24, 0 10px 24px #a47c3520;
+  box-shadow: none;
+  outline: 2px solid #c8a66b;
+  outline-offset: 3px;
 }
 .graph-page .graph-completion-mark {
   position: absolute;
@@ -39,11 +43,25 @@
   padding: 1px;
   pointer-events: none;
 }
-.graph-page .graph-canvas line.knowledge-link-completed { stroke: #49796ba6; }
-.graph-page .graph-legend { flex-wrap: wrap; max-width: calc(100% - 170px); row-gap: 8px; }
-.graph-page .graph-legend .knowledge-not-started-dot { background: #eff6ff; border: 1px solid #93c5fd; }
-.graph-page .graph-legend .knowledge-in-progress-dot { background: #faf2df; border: 1px solid #c8a66b; }
-.graph-page .graph-legend .knowledge-completed-dot { background: var(--knowledge-completed); }
+.graph-page .graph-canvas line.knowledge-link-completed {
+  stroke: #49796ba6;
+}
+.graph-page .graph-legend {
+  flex-wrap: wrap;
+  max-width: calc(100% - 170px);
+  row-gap: 8px;
+}
+.graph-page .graph-legend .knowledge-not-started-dot {
+  background: var(--paper-inset, #ebeff3);
+  border: 1px solid var(--ui-control-border, #b5c0ca);
+}
+.graph-page .graph-legend .knowledge-in-progress-dot {
+  background: #faf2df;
+  border: 1px solid #c8a66b;
+}
+.graph-page .graph-legend .knowledge-completed-dot {
+  background: var(--knowledge-completed);
+}
 .knowledge-progress-summary {
   display: flex;
   align-items: center;
@@ -51,13 +69,27 @@
   gap: 8px;
   padding: 11px 14px;
   margin: 14px 0;
-  border: 1px solid #dce1ea;
+  border: 1px solid var(--paper-border, #dce2e8);
   border-radius: 10px;
-  background: #f0f5fc;
-  color: #3e587a;
+  background: var(--paper-section, #f3f5f7);
+  color: var(--paper-ink, #253247);
   font-size: 13px;
 }
-.knowledge-progress-summary > span { margin-left: auto; }
-.knowledge-progress-summary.learning-completed { color: var(--knowledge-completed-dark); background: var(--knowledge-completed-soft); border-color: #b6cec3; }
-.knowledge-progress-summary.learning-in-progress { color: #805c2a; background: #faf2df; border-color: #e3d3af; }
-.node-detail .knowledge-progress-hint { margin-top: 0; color: #5f6e83; font-size: 12px; }
+.knowledge-progress-summary > span {
+  margin-left: auto;
+}
+.knowledge-progress-summary.learning-completed {
+  color: var(--knowledge-completed-dark);
+  background: var(--knowledge-completed-soft);
+  border-color: #b6cec3;
+}
+.knowledge-progress-summary.learning-in-progress {
+  color: #805c2a;
+  background: #faf2df;
+  border-color: #e3d3af;
+}
+.node-detail .knowledge-progress-hint {
+  margin-top: 0;
+  color: var(--paper-muted, #5f6e83);
+  font-size: 12px;
+}

@@ -1,21 +1,5 @@
 package com.learning.platform.service;
 
-import com.learning.platform.dto.LessonProgressRequest;
-import com.learning.platform.exception.BusinessException;
-import com.learning.platform.vo.CourseContentValidationResult;
-import com.learning.platform.vo.CourseLearningProgressView;
-import com.learning.platform.vo.LessonProgressView;
-import com.learning.platform.vo.ResumeLearningView;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.springframework.jdbc.core.JdbcTemplate;
-
-import java.sql.Timestamp;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -26,7 +10,23 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.learning.platform.dto.LessonProgressRequest;
+import com.learning.platform.exception.BusinessException;
+import com.learning.platform.vo.CourseContentValidationResult;
+import com.learning.platform.vo.CourseLearningProgressView;
+import com.learning.platform.vo.LessonProgressView;
+import com.learning.platform.vo.ResumeLearningView;
+import java.sql.Timestamp;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
+
 class LessonProgressServiceTest {
+
     private JdbcTemplate jdbcTemplate;
     private CourseContentValidationService validationService;
     private LessonProgressService service;
@@ -39,8 +39,9 @@ class LessonProgressServiceTest {
         when(complete.isContentComplete()).thenReturn(true);
         when(validationService.validatePublic(7L)).thenReturn(complete);
         service = new LessonProgressService(jdbcTemplate, validationService);
-        when(jdbcTemplate.queryForList(contains("from resources where id=?"), eq(7L)))
-                .thenReturn(rows(row("id", 7L, "title", "示例课程", "status", 1, "reviewStatus", "approved")));
+        when(jdbcTemplate.queryForList(contains("from resources where id=?"), eq(7L))).thenReturn(
+            rows(row("id", 7L, "title", "示例课程", "status", 1, "reviewStatus", "approved"))
+        );
     }
 
     @Test
@@ -53,8 +54,15 @@ class LessonProgressServiceTest {
 
         assertEquals(40, result.getProgressPercent());
         assertFalse(result.isCompleted());
-        verify(jdbcTemplate).update(contains("insert into lesson_progress"),
-                eq(15L), eq(101L), eq(40), eq(100), eq(40), eq(0));
+        verify(jdbcTemplate).update(
+            contains("insert into lesson_progress"),
+            eq(15L),
+            eq(101L),
+            eq(40),
+            eq(100),
+            eq(40),
+            eq(0)
+        );
     }
 
     @Test
@@ -66,8 +74,15 @@ class LessonProgressServiceTest {
 
         assertFalse(result.isCompleted());
         assertEquals(92, result.getProgressPercent());
-        verify(jdbcTemplate).update(contains("insert into lesson_progress"),
-                eq(15L), eq(102L), eq(92), eq(100), eq(92), eq(0));
+        verify(jdbcTemplate).update(
+            contains("insert into lesson_progress"),
+            eq(15L),
+            eq(102L),
+            eq(92),
+            eq(100),
+            eq(92),
+            eq(0)
+        );
     }
 
     @Test
@@ -77,8 +92,15 @@ class LessonProgressServiceTest {
 
         service.save(15L, 103L, request(7L, 800, 800, "ended"));
 
-        verify(jdbcTemplate).update(contains("insert into lesson_progress"),
-                eq(15L), eq(103L), eq(120), eq(120), eq(100), eq(1));
+        verify(jdbcTemplate).update(
+            contains("insert into lesson_progress"),
+            eq(15L),
+            eq(103L),
+            eq(120),
+            eq(120),
+            eq(100),
+            eq(1)
+        );
     }
 
     @Test
@@ -89,8 +111,15 @@ class LessonProgressServiceTest {
         LessonProgressView result = service.save(15L, 104L, request(7L, 0, 0, "completed"));
 
         assertTrue(result.isCompleted());
-        verify(jdbcTemplate).update(contains("insert into lesson_progress"),
-                eq(15L), eq(104L), eq(1), eq(1), eq(100), eq(1));
+        verify(jdbcTemplate).update(
+            contains("insert into lesson_progress"),
+            eq(15L),
+            eq(104L),
+            eq(1),
+            eq(1),
+            eq(100),
+            eq(1)
+        );
     }
 
     @Test
@@ -102,8 +131,15 @@ class LessonProgressServiceTest {
         LessonProgressView result = service.save(15L, 104L, reading);
         assertFalse(result.isCompleted());
         assertEquals(99, result.getProgressPercent());
-        verify(jdbcTemplate).update(contains("insert into lesson_progress"),
-                eq(15L), eq(104L), eq(0), eq(1), eq(99), eq(0));
+        verify(jdbcTemplate).update(
+            contains("insert into lesson_progress"),
+            eq(15L),
+            eq(104L),
+            eq(0),
+            eq(1),
+            eq(99),
+            eq(0)
+        );
     }
 
     @Test
@@ -111,8 +147,15 @@ class LessonProgressServiceTest {
         stubLesson(104L, "article", 0);
         stubSaved(104L, 0, 1, 0, 0);
         service.save(15L, 104L, request(7L, 1, 1, "heartbeat"));
-        verify(jdbcTemplate).update(contains("insert into lesson_progress"),
-                eq(15L), eq(104L), eq(0), eq(1), eq(0), eq(0));
+        verify(jdbcTemplate).update(
+            contains("insert into lesson_progress"),
+            eq(15L),
+            eq(104L),
+            eq(0),
+            eq(1),
+            eq(0),
+            eq(0)
+        );
     }
 
     @Test
@@ -120,17 +163,26 @@ class LessonProgressServiceTest {
         stubLesson(105L, "video", 3600);
         stubSaved(105L, 1, 3600, 1, 0);
         service.save(15L, 105L, request(7L, 1, 3600, "heartbeat"));
-        verify(jdbcTemplate).update(contains("insert into lesson_progress"),
-                eq(15L), eq(105L), eq(1), eq(3600), eq(1), eq(0));
+        verify(jdbcTemplate).update(
+            contains("insert into lesson_progress"),
+            eq(15L),
+            eq(105L),
+            eq(1),
+            eq(3600),
+            eq(1),
+            eq(0)
+        );
     }
 
     @Test
     void lessonOutsideCourseIsRejected() {
-        when(jdbcTemplate.queryForList(contains("from course_lessons l join"), eq(7L), eq(999L)))
-                .thenReturn(rows());
+        when(
+            jdbcTemplate.queryForList(contains("from course_lessons l join"), eq(7L), eq(999L))
+        ).thenReturn(rows());
 
-        BusinessException error = assertThrows(BusinessException.class,
-                () -> service.save(15L, 999L, request(7L, 20, 100, "heartbeat")));
+        BusinessException error = assertThrows(BusinessException.class, () ->
+            service.save(15L, 999L, request(7L, 20, 100, "heartbeat"))
+        );
 
         assertEquals(404, error.getCode());
     }
@@ -139,14 +191,44 @@ class LessonProgressServiceTest {
     void courseProgressAggregatesAllPublishedLessons() {
         Timestamp older = Timestamp.valueOf("2026-08-04 10:00:00");
         Timestamp latest = Timestamp.valueOf("2026-08-04 11:00:00");
-        when(jdbcTemplate.queryForList(contains("left join lesson_progress"), eq(15L), eq(7L)))
-                .thenReturn(rows(
-                        row("lessonId", 101L, "lessonDuration", 100, "lastPositionSeconds", 100,
-                                "savedDurationSeconds", 100, "progressPercent", 100, "completed", 1,
-                                "lastStudiedAt", older),
-                        row("lessonId", 102L, "lessonDuration", 200, "lastPositionSeconds", 100,
-                                "savedDurationSeconds", 200, "progressPercent", 50, "completed", 0,
-                                "lastStudiedAt", latest)));
+        when(
+            jdbcTemplate.queryForList(contains("left join lesson_progress"), eq(15L), eq(7L))
+        ).thenReturn(
+            rows(
+                row(
+                    "lessonId",
+                    101L,
+                    "lessonDuration",
+                    100,
+                    "lastPositionSeconds",
+                    100,
+                    "savedDurationSeconds",
+                    100,
+                    "progressPercent",
+                    100,
+                    "completed",
+                    1,
+                    "lastStudiedAt",
+                    older
+                ),
+                row(
+                    "lessonId",
+                    102L,
+                    "lessonDuration",
+                    200,
+                    "lastPositionSeconds",
+                    100,
+                    "savedDurationSeconds",
+                    200,
+                    "progressPercent",
+                    50,
+                    "completed",
+                    0,
+                    "lastStudiedAt",
+                    latest
+                )
+            )
+        );
 
         CourseLearningProgressView result = service.courseProgress(15L, 7L);
 
@@ -160,10 +242,26 @@ class LessonProgressServiceTest {
     @Test
     void resumeReturnsMostRecentPublishedLesson() {
         Timestamp studiedAt = Timestamp.valueOf("2026-08-04 11:30:00");
-        when(jdbcTemplate.queryForList(contains("from lesson_progress lp"), eq(15L)))
-                .thenReturn(rows(row("courseId", 7L, "courseTitle", "示例课程", "lessonId", 102L,
-                        "lessonTitle", "第二节", "lastPositionSeconds", 61, "progressPercent", 31,
-                        "lastStudiedAt", studiedAt)));
+        when(jdbcTemplate.queryForList(contains("from lesson_progress lp"), eq(15L))).thenReturn(
+            rows(
+                row(
+                    "courseId",
+                    7L,
+                    "courseTitle",
+                    "示例课程",
+                    "lessonId",
+                    102L,
+                    "lessonTitle",
+                    "第二节",
+                    "lastPositionSeconds",
+                    61,
+                    "progressPercent",
+                    31,
+                    "lastStudiedAt",
+                    studiedAt
+                )
+            )
+        );
 
         ResumeLearningView result = service.resume(15L);
 
@@ -175,26 +273,52 @@ class LessonProgressServiceTest {
 
     @Test
     void roundedCourseAverageCannotReachOneHundredWithAnUnfinishedLesson() {
-        when(jdbcTemplate.queryForList(contains("left join lesson_progress"), eq(15L), eq(7L)))
-                .thenReturn(rows(
-                        row("lessonId", 101L, "progressPercent", 100, "completed", 1),
-                        row("lessonId", 102L, "progressPercent", 99, "completed", 0)));
+        when(
+            jdbcTemplate.queryForList(contains("left join lesson_progress"), eq(15L), eq(7L))
+        ).thenReturn(
+            rows(
+                row("lessonId", 101L, "progressPercent", 100, "completed", 1),
+                row("lessonId", 102L, "progressPercent", 99, "completed", 0)
+            )
+        );
         assertEquals(99, service.courseProgress(15L, 7L).getProgressPercent());
     }
 
     private void stubLesson(long lessonId, String lessonType, int duration) {
-        when(jdbcTemplate.queryForList(contains("from course_lessons l join"), eq(7L), eq(lessonId)))
-                .thenReturn(rows(row("lessonId", lessonId, "lessonType", lessonType, "durationSeconds", duration)));
+        when(
+            jdbcTemplate.queryForList(contains("from course_lessons l join"), eq(7L), eq(lessonId))
+        ).thenReturn(
+            rows(row("lessonId", lessonId, "lessonType", lessonType, "durationSeconds", duration))
+        );
     }
 
     private void stubSaved(long lessonId, int position, int duration, int progress, int completed) {
-        when(jdbcTemplate.queryForList(contains("from lesson_progress where"), eq(15L), eq(lessonId)))
-                .thenReturn(rows(row("lastPositionSeconds", position, "durationSeconds", duration,
-                        "progressPercent", progress, "completed", completed,
-                        "lastStudiedAt", Timestamp.valueOf("2026-08-04 10:00:00"))));
+        when(
+            jdbcTemplate.queryForList(contains("from lesson_progress where"), eq(15L), eq(lessonId))
+        ).thenReturn(
+            rows(
+                row(
+                    "lastPositionSeconds",
+                    position,
+                    "durationSeconds",
+                    duration,
+                    "progressPercent",
+                    progress,
+                    "completed",
+                    completed,
+                    "lastStudiedAt",
+                    Timestamp.valueOf("2026-08-04 10:00:00")
+                )
+            )
+        );
     }
 
-    private LessonProgressRequest request(long courseId, int position, int duration, String eventType) {
+    private LessonProgressRequest request(
+        long courseId,
+        int position,
+        int duration,
+        String eventType
+    ) {
         LessonProgressRequest request = new LessonProgressRequest();
         request.setCourseId(courseId);
         request.setPositionSeconds(position);

@@ -2,6 +2,10 @@ server:
   port: ${SERVER_PORT:8081}
 
 spring:
+  config:
+    import:
+      - "optional:file:./.runtime/demo-login.local[.properties]"
+      - "optional:file:../.runtime/demo-login.local[.properties]"
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: ${DB_URL:jdbc:mysql://localhost:3306/learning_platform?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
@@ -17,6 +21,9 @@ app:
     seed-teacher-id: ${CATALOG_SEED_TEACHER_ID:0}
   upload-dir: ${APP_UPLOAD_DIR:D:/project/learning-platform-springboot/backend/uploads}
   report-dir: ${APP_REPORT_DIR:D:/project/learning-platform-springboot/backend/reports}
+  demo-login:
+    enabled: ${DEMO_LOGIN_ENABLED:false}
+    accounts-file: ${DEMO_LOGIN_ACCOUNTS_FILE:}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:8080,http://127.0.0.1:8080,http://localhost:8081,http://127.0.0.1:8081}
   auth:

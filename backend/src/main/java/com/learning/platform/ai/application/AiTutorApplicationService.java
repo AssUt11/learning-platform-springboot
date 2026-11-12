@@ -13,13 +13,6 @@ import com.learning.platform.ai.memory.AiConversationRepository;
 import com.learning.platform.ai.prompt.TutorPromptService;
 import com.learning.platform.ai.safety.ThinkingContentFilter;
 import com.learning.platform.exception.BusinessException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.http.MediaType;
-import org.springframework.stereotype.Service;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
-
-import javax.annotation.PreDestroy;
 import java.io.IOException;
 import java.net.ConnectException;
 import java.net.http.HttpTimeoutException;
@@ -39,9 +32,16 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import javax.annotation.PreDestroy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @Service
 public class AiTutorApplicationService {
+
     private static final Logger LOGGER = LoggerFactory.getLogger(AiTutorApplicationService.class);
     private final AiProperties properties;
     private final AiModelProvider provider;
@@ -50,15 +50,20 @@ public class AiTutorApplicationService {
     private final TutorPromptService promptService;
     private final AiUserRateLimiter rateLimiter;
     private final ThreadPoolExecutor executor;
-    private final ConcurrentMap<String, GenerationControl> requests = new ConcurrentHashMap<String, GenerationControl>();
+    private final ConcurrentMap<String, GenerationControl> requests = new ConcurrentHashMap<
+        String,
+        GenerationControl
+    >();
     private final ConcurrentMap<Long, String> userRequests = new ConcurrentHashMap<Long, String>();
 
-    public AiTutorApplicationService(AiProperties properties,
-                                     AiModelProvider provider,
-                                     AiLearningContextService contextService,
-                                     AiConversationRepository repository,
-                                     TutorPromptService promptService,
-                                     AiUserRateLimiter rateLimiter) {
+    public AiTutorApplicationService(
+        AiProperties properties,
+        AiModelProvider provider,
+        AiLearningContextService contextService,
+        AiConversationRepository repository,
+        TutorPromptService promptService,
+        AiUserRateLimiter rateLimiter
+    ) {
         this.properties = properties;
         this.provider = provider;
         this.contextService = contextService;
@@ -67,13 +72,20 @@ public class AiTutorApplicationService {
         this.rateLimiter = rateLimiter;
         int concurrent = Math.max(1, properties.getMaxConcurrent());
         int queue = Math.max(1, properties.getMaxQueue());
-        ThreadFactory factory = runnable -> {
+        ThreadFactory factory = (runnable) -> {
             Thread thread = new Thread(runnable, "ai-tutor-worker");
             thread.setDaemon(true);
             return thread;
         };
-        this.executor = new ThreadPoolExecutor(concurrent, concurrent, 0L, TimeUnit.MILLISECONDS,
-                new ArrayBlockingQueue<Runnable>(queue), factory, new ThreadPoolExecutor.AbortPolicy());
+        this.executor = new ThreadPoolExecutor(
+            concurrent,
+            concurrent,
+            0L,
+            TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<Runnable>(queue),
+            factory,
+            new ThreadPoolExecutor.AbortPolicy()
+        );
     }
 
     public String start(Map<String, Object> student, AiChatRequest request, SseEmitter emitter) {
@@ -91,18 +103,57 @@ public class AiTutorApplicationService {
 
         GenerationControl control = null;
         try {
-            LearningContext learningContext = contextService.load(student, request.getCourseId(), request.getLessonId());
-            long conversationId = repository.resolveConversation(request.getConversationId(), userId,
-                    request.getCourseId(), request.getLessonId(), learningContext.getLessonTitle());
+            LearningContext learningContext = contextService.load(
+                student,
+                request.getCourseId(),
+                request.getLessonId(),
+                request.getMessage().trim()
+            );
+            long conversationId = repository.resolveConversation(
+                request.getConversationId(),
+                userId,
+                request.getCourseId(),
+                request.getLessonId(),
+                learningContext.getLessonTitle()
+            );
             List<AiProviderMessage> history = repository.recentHistory(conversationId, 8);
-            repository.insertMessage(conversationId, "USER", request.getMessage().trim(), null,
-                    null, requestId, TutorPromptService.VERSION, "completed");
-            long assistantMessageId = repository.insertMessage(conversationId, "ASSISTANT", "",
-                    provider.providerCode(), provider.modelCode(), requestId, TutorPromptService.VERSION, "queued");
-            List<AiProviderMessage> prompt = promptService.messages(
-                    learningContext, history, request.getMessage().trim());
-            control = new GenerationControl(requestId, userId, request.getCourseId(), request.getLessonId(),
-                    conversationId, assistantMessageId, learningContext, prompt, emitter);
+            repository.insertMessage(
+                conversationId,
+                "USER",
+                request.getMessage().trim(),
+                null,
+                null,
+                requestId,
+                TutorPromptService.VERSION,
+                "completed"
+            );
+            long assistantMessageId = repository.insertMessage(
+                conversationId,
+                "ASSISTANT",
+                "",
+                provider.providerCode(),
+                provider.modelCode(),
+                requestId,
+                TutorPromptService.VERSION,
+                "queued"
+            );
+            TutorPromptService.PreparedPrompt prepared = promptService.prepare(
+                learningContext,
+                history,
+                request.getMessage().trim()
+            );
+            control = new GenerationControl(
+                requestId,
+                userId,
+                request.getCourseId(),
+                request.getLessonId(),
+                conversationId,
+                assistantMessageId,
+                learningContext,
+                prepared.getMessages(),
+                prepared.getCitations(),
+                emitter
+            );
             requests.put(requestId, control);
             GenerationControl scheduled = control;
             Future<?> future = executor.submit(() -> generate(scheduled));
@@ -134,13 +185,30 @@ public class AiTutorApplicationService {
             control.cancellation.cancel();
             if (control.future != null) control.future.cancel(true);
             try {
-                repository.updateMessage(control.assistantMessageId, control.answer.toString(), "cancelled");
-                repository.insertUsage(control.requestId, control.userId, control.courseId, control.lessonId,
-                        provider.providerCode(), provider.modelCode(), null, control.context.isNeo4jAvailable(),
-                        control.context.getGraphNodeCount(), "cancelled", "AI_REQUEST_CANCELLED");
+                repository.updateMessage(
+                    control.assistantMessageId,
+                    control.answer.toString(),
+                    "cancelled"
+                );
+                repository.insertUsage(
+                    control.requestId,
+                    control.userId,
+                    control.courseId,
+                    control.lessonId,
+                    provider.providerCode(),
+                    provider.modelCode(),
+                    null,
+                    control.context.isNeo4jAvailable(),
+                    control.context.getGraphNodeCount(),
+                    "cancelled",
+                    "AI_REQUEST_CANCELLED"
+                );
             } catch (RuntimeException persistenceError) {
-                LOGGER.warn("Unable to persist cancellation for AI request {}: {}", control.requestId,
-                        persistenceError.getClass().getSimpleName());
+                LOGGER.warn(
+                    "Unable to persist cancellation for AI request {}: {}",
+                    control.requestId,
+                    persistenceError.getClass().getSimpleName()
+                );
             }
         }
         cleanup(control);
@@ -153,35 +221,55 @@ public class AiTutorApplicationService {
         return true;
     }
 
-    public int activeCount() { return executor.getActiveCount(); }
-    public int queueSize() { return executor.getQueue().size(); }
+    public int activeCount() {
+        return executor.getActiveCount();
+    }
+
+    public int queueSize() {
+        return executor.getQueue().size();
+    }
 
     private void generate(GenerationControl control) {
         try {
             control.ready.await();
             control.cancellation.throwIfCancelled();
+            contextService.validateReferences(control.context, control.citations);
             repository.updateMessage(control.assistantMessageId, "", "generating");
             Map<String, Object> started = new LinkedHashMap<String, Object>();
             started.put("messageId", control.assistantMessageId);
             started.put("requestId", control.requestId);
             started.put("provider", provider.providerCode());
             started.put("model", provider.modelCode());
-            started.put("knowledgeSource", control.context.isNeo4jAvailable() ? "mysql+neo4j" : "mysql");
+            started.put(
+                "knowledgeSource",
+                control.context.isNeo4jAvailable() ? "mysql+neo4j" : "mysql"
+            );
             started.put("graphNodeCount", control.context.getGraphNodeCount());
+            long retrievedCount = control.citations.stream()
+                .filter(item -> "COURSEWARE_CHUNK".equals(item.get("sourceType"))).count();
+            started.put("retrievedChunkCount", retrievedCount);
+            started.put("coursewareStatus", retrievedCount > 0 ? "matched" : "no_references");
             send(control.emitter, "message.started", started);
-            sendCitation(control.emitter, "COURSE", control.courseId, control.context.getCourseTitle());
-            sendCitation(control.emitter, "LESSON", control.lessonId, control.context.getLessonTitle());
-
             ThinkingContentFilter filter = new ThinkingContentFilter();
-            AiUsage usage = provider.chatStream(new AiProviderRequest(control.prompt), raw -> {
-                control.cancellation.throwIfCancelled();
-                String visible = filter.accept(raw);
-                if (visible.isEmpty()) return;
-                control.answer.append(visible);
-                send(control.emitter, "message.delta", Collections.singletonMap("content", visible));
-            }, control.cancellation);
+            AiUsage usage = provider.chatStream(
+                new AiProviderRequest(control.prompt),
+                (raw) -> {
+                    control.cancellation.throwIfCancelled();
+                    String visible = filter.accept(raw);
+                    if (visible.isEmpty()) return;
+                    sendReferences(control);
+                    control.answer.append(visible);
+                    send(
+                        control.emitter,
+                        "message.delta",
+                        Collections.singletonMap("content", visible)
+                    );
+                },
+                control.cancellation
+            );
             String tail = filter.finish();
             if (!tail.isEmpty()) {
+                sendReferences(control);
                 control.answer.append(tail);
                 send(control.emitter, "message.delta", Collections.singletonMap("content", tail));
             }
@@ -196,8 +284,12 @@ public class AiTutorApplicationService {
             terminate(control, "cancelled", "AI_REQUEST_CANCELLED", null);
         } catch (Exception exception) {
             String code = errorCode(exception);
-            LOGGER.warn("AI request {} failed with {}: {}", control.requestId, code,
-                    exception.getClass().getSimpleName());
+            LOGGER.warn(
+                "AI request {} failed with {}: {}",
+                control.requestId,
+                code,
+                exception.getClass().getSimpleName()
+            );
             terminate(control, "failed", code, exception);
         }
     }
@@ -207,24 +299,45 @@ public class AiTutorApplicationService {
             synchronized (control) {
                 if (control.terminal.get()) return;
                 try {
-                    repository.updateMessage(control.assistantMessageId, control.answer.toString(), "completed");
-                    repository.insertCitation(control.assistantMessageId, "COURSE", control.courseId,
-                            control.context.getCourseTitle());
-                    repository.insertCitation(control.assistantMessageId, "LESSON", control.lessonId,
-                            control.context.getLessonTitle());
-                    repository.insertUsage(control.requestId, control.userId, control.courseId, control.lessonId,
-                            provider.providerCode(), provider.modelCode(), usage, control.context.isNeo4jAvailable(),
-                            control.context.getGraphNodeCount(), "completed", null);
+                    repository.updateMessage(
+                        control.assistantMessageId,
+                        control.answer.toString(),
+                        "completed"
+                    );
+                    for (Map<String, Object> citation : control.citations) {
+                        repository.insertCitation(control.assistantMessageId, citation);
+                    }
+                    repository.insertUsage(
+                        control.requestId,
+                        control.userId,
+                        control.courseId,
+                        control.lessonId,
+                        provider.providerCode(),
+                        provider.modelCode(),
+                        usage,
+                        control.context.isNeo4jAvailable(),
+                        control.context.getGraphNodeCount(),
+                        "completed",
+                        null
+                    );
                 } finally {
                     control.terminal.set(true);
                 }
             }
         } catch (RuntimeException persistenceError) {
             cleanup(control);
-            LOGGER.warn("Unable to persist completed AI request {}: {}", control.requestId,
-                    persistenceError.getClass().getSimpleName());
+            LOGGER.warn(
+                "Unable to persist completed AI request {}: {}",
+                control.requestId,
+                persistenceError.getClass().getSimpleName()
+            );
             try {
-                sendError(control.emitter, "AI_RESPONSE_INVALID", "回答已生成，但保存失败，请重新提问。", control.requestId);
+                sendError(
+                    control.emitter,
+                    "AI_RESPONSE_INVALID",
+                    "回答已生成，但保存失败，请重新提问。",
+                    control.requestId
+                );
                 control.emitter.complete();
             } catch (RuntimeException ignored) {
                 // The client may already have disconnected.
@@ -238,24 +351,49 @@ public class AiTutorApplicationService {
         completed.put("promptTokens", usage.getPromptTokens() < 0 ? null : usage.getPromptTokens());
         completed.put("outputTokens", usage.getOutputTokens() < 0 ? null : usage.getOutputTokens());
         completed.put("totalDurationMs", usage.getTotalDurationMs());
-        completed.put("tokensPerSecond", usage.getOutputTokens() < 0 ? null : usage.getTokensPerSecond());
+        completed.put(
+            "tokensPerSecond",
+            usage.getOutputTokens() < 0 ? null : usage.getTokensPerSecond()
+        );
         completed.put("neo4jUsed", control.context.isNeo4jAvailable());
         completed.put("graphNodeCount", control.context.getGraphNodeCount());
         send(control.emitter, "message.completed", completed);
         control.emitter.complete();
     }
 
-    private void terminate(GenerationControl control, String status, String code, Exception exception) {
+    private void terminate(
+        GenerationControl control,
+        String status,
+        String code,
+        Exception exception
+    ) {
         synchronized (control) {
             if (control.terminal.get()) return;
             try {
-                repository.updateMessage(control.assistantMessageId, control.answer.toString(), status);
-                repository.insertUsage(control.requestId, control.userId, control.courseId, control.lessonId,
-                        provider.providerCode(), provider.modelCode(), null, control.context.isNeo4jAvailable(),
-                        control.context.getGraphNodeCount(), status, code);
+                repository.updateMessage(
+                    control.assistantMessageId,
+                    control.answer.toString(),
+                    status
+                );
+                repository.insertUsage(
+                    control.requestId,
+                    control.userId,
+                    control.courseId,
+                    control.lessonId,
+                    provider.providerCode(),
+                    provider.modelCode(),
+                    null,
+                    control.context.isNeo4jAvailable(),
+                    control.context.getGraphNodeCount(),
+                    status,
+                    code
+                );
             } catch (RuntimeException persistenceError) {
-                LOGGER.warn("Unable to persist terminal state for AI request {}: {}", control.requestId,
-                        persistenceError.getClass().getSimpleName());
+                LOGGER.warn(
+                    "Unable to persist terminal state for AI request {}: {}",
+                    control.requestId,
+                    persistenceError.getClass().getSimpleName()
+                );
             } finally {
                 control.terminal.set(true);
             }
@@ -278,12 +416,25 @@ public class AiTutorApplicationService {
             control.terminal.set(true);
             try {
                 repository.updateMessage(control.assistantMessageId, "", "failed");
-                repository.insertUsage(control.requestId, control.userId, control.courseId, control.lessonId,
-                        provider.providerCode(), provider.modelCode(), null, control.context.isNeo4jAvailable(),
-                        control.context.getGraphNodeCount(), "failed", code);
+                repository.insertUsage(
+                    control.requestId,
+                    control.userId,
+                    control.courseId,
+                    control.lessonId,
+                    provider.providerCode(),
+                    provider.modelCode(),
+                    null,
+                    control.context.isNeo4jAvailable(),
+                    control.context.getGraphNodeCount(),
+                    "failed",
+                    code
+                );
             } catch (RuntimeException persistenceError) {
-                LOGGER.warn("Unable to persist rejected AI request {}: {}", control.requestId,
-                        persistenceError.getClass().getSimpleName());
+                LOGGER.warn(
+                    "Unable to persist rejected AI request {}: {}",
+                    control.requestId,
+                    persistenceError.getClass().getSimpleName()
+                );
             }
         }
         cleanup(control);
@@ -292,7 +443,7 @@ public class AiTutorApplicationService {
     private void registerLifecycle(GenerationControl control) {
         control.emitter.onCompletion(() -> cancel(control.userId, control.requestId));
         control.emitter.onTimeout(() -> cancel(control.userId, control.requestId));
-        control.emitter.onError(error -> cancel(control.userId, control.requestId));
+        control.emitter.onError((error) -> cancel(control.userId, control.requestId));
     }
 
     private void cleanup(GenerationControl control) {
@@ -301,8 +452,13 @@ public class AiTutorApplicationService {
     }
 
     private void validate(AiChatRequest request) {
-        if (request == null || request.getCourseId() == null || request.getCourseId() <= 0L
-                || request.getLessonId() == null || request.getLessonId() <= 0L) {
+        if (
+            request == null ||
+            request.getCourseId() == null ||
+            request.getCourseId() <= 0L ||
+            request.getLessonId() == null ||
+            request.getLessonId() <= 0L
+        ) {
             throw new BusinessException(400, "课程和课时参数无效。");
         }
         String message = request.getMessage() == null ? "" : request.getMessage().trim();
@@ -331,17 +487,17 @@ public class AiTutorApplicationService {
         send(emitter, "error", error);
     }
 
-    private void sendCitation(SseEmitter emitter, String sourceType, long sourceId, String title) {
-        Map<String, Object> citation = new LinkedHashMap<String, Object>();
-        citation.put("sourceType", sourceType);
-        citation.put("sourceId", sourceId);
-        citation.put("title", title);
-        send(emitter, "citation.added", citation);
+    private void sendReferences(GenerationControl control) {
+        if (!control.referencesSent.compareAndSet(false, true)) return;
+        for (Map<String, Object> citation : control.citations) {
+            send(control.emitter, "citation.added", citation);
+        }
     }
 
     private String errorCode(Throwable exception) {
         Throwable current = exception;
         while (current != null) {
+            if (current instanceof AiLearningContextService.CoursewareChangedException) return "AI_COURSEWARE_CHANGED";
             if (current instanceof HttpTimeoutException) return "AI_TIMEOUT";
             if (current instanceof ConnectException) return "AI_SERVICE_OFFLINE";
             current = current.getCause();
@@ -353,18 +509,23 @@ public class AiTutorApplicationService {
         if ("AI_TIMEOUT".equals(code)) return "本次回答超时，请重新提问。";
         if ("AI_SERVICE_OFFLINE".equals(code)) return "本地 AI 服务未启动，请联系管理员。";
         if ("AI_REQUEST_CANCELLED".equals(code)) return "已停止生成。";
+        if ("AI_COURSEWARE_CHANGED".equals(code)) return "课件已更新或撤回，请重新提问获取当前资料。";
         return "AI 回答生成失败，请稍后重试。";
     }
 
-    private long number(Object value) { return ((Number) value).longValue(); }
+    private long number(Object value) {
+        return ((Number) value).longValue();
+    }
 
     @PreDestroy
     public void close() {
-        for (GenerationControl control : requests.values()) cancel(control.userId, control.requestId);
+        for (GenerationControl control : requests.values())
+            cancel(control.userId, control.requestId);
         executor.shutdownNow();
     }
 
     private static class GenerationControl {
+
         private final String requestId;
         private final long userId;
         private final long courseId;
@@ -373,16 +534,27 @@ public class AiTutorApplicationService {
         private final long assistantMessageId;
         private final LearningContext context;
         private final List<AiProviderMessage> prompt;
+        private final List<Map<String, Object>> citations;
         private final SseEmitter emitter;
         private final AiCancellation cancellation = new AiCancellation();
         private final StringBuffer answer = new StringBuffer();
         private final AtomicBoolean terminal = new AtomicBoolean(false);
+        private final AtomicBoolean referencesSent = new AtomicBoolean(false);
         private final CountDownLatch ready = new CountDownLatch(1);
         private volatile Future<?> future;
 
-        private GenerationControl(String requestId, long userId, long courseId, long lessonId,
-                                  long conversationId, long assistantMessageId, LearningContext context,
-                                  List<AiProviderMessage> prompt, SseEmitter emitter) {
+        private GenerationControl(
+            String requestId,
+            long userId,
+            long courseId,
+            long lessonId,
+            long conversationId,
+            long assistantMessageId,
+            LearningContext context,
+            List<AiProviderMessage> prompt,
+            List<Map<String, Object>> citations,
+            SseEmitter emitter
+        ) {
             this.requestId = requestId;
             this.userId = userId;
             this.courseId = courseId;
@@ -391,6 +563,7 @@ public class AiTutorApplicationService {
             this.assistantMessageId = assistantMessageId;
             this.context = context;
             this.prompt = prompt;
+            this.citations = citations;
             this.emitter = emitter;
         }
     }

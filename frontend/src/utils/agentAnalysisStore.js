@@ -26,15 +26,28 @@ function restoreOutputs(storageKey) {
   try {
     const saved = JSON.parse(sessionStorage.getItem(storageKey));
     if (saved?.version !== 1) return {};
-    return Object.fromEntries(AGENT_IDS.flatMap((id) => {
-      const output = saved.outputs?.[id];
-      if (typeof output?.text !== "string") return [];
-      return [[id, {
-        ...outputFrom({ result: output.text, model: output.model, toolsUsed: output.tools,
-          sources: output.sources, graphUsed: output.graphUsed, learningPath: output.learningPath }),
-        error: Boolean(output.error)
-      }]];
-    }));
+    return Object.fromEntries(
+      AGENT_IDS.flatMap((id) => {
+        const output = saved.outputs?.[id];
+        if (typeof output?.text !== "string") return [];
+        return [
+          [
+            id,
+            {
+              ...outputFrom({
+                result: output.text,
+                model: output.model,
+                toolsUsed: output.tools,
+                sources: output.sources,
+                graphUsed: output.graphUsed,
+                learningPath: output.learningPath
+              }),
+              error: Boolean(output.error)
+            }
+          ]
+        ];
+      })
+    );
   } catch {
     return {};
   }
@@ -53,8 +66,8 @@ function createStore(userId, token) {
   const listeners = new Set();
   let retired = false;
   let snapshot = { outputs: restoreOutputs(storageKey), busyAgents: {}, reportsVersion: 0 };
-  const isCurrentSession = () => !retired && currentUserId() === userId
-    && localStorage.getItem("learning_token") === token;
+  const isCurrentSession = () =>
+    !retired && currentUserId() === userId && localStorage.getItem("learning_token") === token;
   const publish = (next) => {
     snapshot = next;
     try {
@@ -77,8 +90,11 @@ function createStore(userId, token) {
     // The request belongs to this login session, not the mounted analysis page.
     async run(id, generate) {
       if (!AGENT_IDS.includes(id) || snapshot.busyAgents[id] || !isCurrentSession()) return;
-      publish({ ...snapshot, outputs: { ...snapshot.outputs, [id]: null },
-        busyAgents: { ...snapshot.busyAgents, [id]: true } });
+      publish({
+        ...snapshot,
+        outputs: { ...snapshot.outputs, [id]: null },
+        busyAgents: { ...snapshot.busyAgents, [id]: true }
+      });
       try {
         const data = await generate();
         // Logout or a different login must never receive this request's late response.
@@ -91,9 +107,14 @@ function createStore(userId, token) {
         });
       } catch (error) {
         if (!isCurrentSession()) return;
-        publish({ ...snapshot,
-          outputs: { ...snapshot.outputs, [id]: { text: `分析失败：${error?.message || "请稍后重试"}`, error: true } },
-          busyAgents: { ...snapshot.busyAgents, [id]: false } });
+        publish({
+          ...snapshot,
+          outputs: {
+            ...snapshot.outputs,
+            [id]: { text: `分析失败：${error?.message || "请稍后重试"}`, error: true }
+          },
+          busyAgents: { ...snapshot.busyAgents, [id]: false }
+        });
       }
     },
     retire() {

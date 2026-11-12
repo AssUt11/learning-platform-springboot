@@ -3,6 +3,7 @@ package com.learning.platform.vo;
 import java.util.List;
 
 public class CourseOutlineView {
+
     private final long courseId;
     private final String title;
     private final int chapterCount;
@@ -10,8 +11,14 @@ public class CourseOutlineView {
     private final int totalDurationSeconds;
     private final List<ChapterView> chapters;
 
-    public CourseOutlineView(long courseId, String title, int chapterCount, int lessonCount,
-                             int totalDurationSeconds, List<ChapterView> chapters) {
+    public CourseOutlineView(
+        long courseId,
+        String title,
+        int chapterCount,
+        int lessonCount,
+        int totalDurationSeconds,
+        List<ChapterView> chapters
+    ) {
         this.courseId = courseId;
         this.title = title;
         this.chapterCount = chapterCount;
@@ -20,10 +27,27 @@ public class CourseOutlineView {
         this.chapters = chapters;
     }
 
-    public long getCourseId() { return courseId; }
-    public String getTitle() { return title; }
-    public int getChapterCount() { return chapterCount; }
-    public int getLessonCount() { return lessonCount; }
-    public int getTotalDurationSeconds() { return totalDurationSeconds; }
-    public List<ChapterView> getChapters() { return chapters; }
+    public long getCourseId() {
+        return courseId;
+    }
+
+    public String getTitle() {
+        return title;
+    }
+
+    public int getChapterCount() {
+        return chapterCount;
+    }
+
+    public int getLessonCount() {
+        return lessonCount;
+    }
+
+    public int getTotalDurationSeconds() {
+        return totalDurationSeconds;
+    }
+
+    public List<ChapterView> getChapters() {
+        return chapters;
+    }
 }

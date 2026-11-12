@@ -7,7 +7,8 @@ export default function useTranscriptScroll(active = true) {
   const following = useRef(true);
   const onScroll = useCallback(() => {
     const viewport = viewportRef.current;
-    if (viewport) following.current = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 64;
+    if (viewport)
+      following.current = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 64;
   }, []);
   const followLatest = useCallback(() => {
     following.current = true;
@@ -29,7 +30,10 @@ export default function useTranscriptScroll(active = true) {
     const observer = new ResizeObserver(follow);
     observer.observe(content);
     follow();
-    return () => { observer.disconnect(); window.cancelAnimationFrame(frame); };
+    return () => {
+      observer.disconnect();
+      window.cancelAnimationFrame(frame);
+    };
   }, [active]);
   return { viewportRef, contentRef, onScroll, followLatest };
 }

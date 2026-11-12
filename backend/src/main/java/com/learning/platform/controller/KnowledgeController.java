@@ -4,6 +4,15 @@ import com.learning.platform.exception.BusinessException;
 import com.learning.platform.service.CurrentUserService;
 import com.learning.platform.service.KnowledgeTaxonomyService;
 import com.learning.platform.util.ApiResponses;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import javax.annotation.PreDestroy;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Config;
 import org.neo4j.driver.Driver;
@@ -26,19 +35,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import javax.annotation.PreDestroy;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
-
 @RestController
 @RequestMapping("/api")
 public class KnowledgeController {
+
     private final JdbcTemplate jdbcTemplate;
     private final KnowledgeTaxonomyService taxonomy;
     private final CurrentUserService currentUserService;
@@ -54,17 +54,19 @@ public class KnowledgeController {
     private volatile boolean neo4jTaxonomySynced;
     private volatile long neo4jRetryAfterEpochMs;
 
-    public KnowledgeController(JdbcTemplate jdbcTemplate,
-                               KnowledgeTaxonomyService taxonomy,
-                               CurrentUserService currentUserService,
-                               @Value("${app.neo4j.enabled:false}") boolean neo4jEnabled,
-                               @Value("${app.neo4j.uri:neo4j://127.0.0.1:7687}") String neo4jUri,
-                               @Value("${app.neo4j.username:neo4j}") String neo4jUsername,
-                               @Value("${app.neo4j.password:12345678}") String neo4jPassword,
-                               @Value("${app.neo4j.connection-timeout-ms:2000}") long neo4jConnectionTimeoutMs,
-                               @Value("${app.neo4j.acquisition-timeout-ms:2000}") long neo4jAcquisitionTimeoutMs,
-                               @Value("${app.neo4j.retry-timeout-ms:800}") long neo4jRetryTimeoutMs,
-                               @Value("${app.neo4j.failure-cooldown-ms:10000}") long neo4jFailureCooldownMs) {
+    public KnowledgeController(
+        JdbcTemplate jdbcTemplate,
+        KnowledgeTaxonomyService taxonomy,
+        CurrentUserService currentUserService,
+        @Value("${app.neo4j.enabled:false}") boolean neo4jEnabled,
+        @Value("${app.neo4j.uri:neo4j://127.0.0.1:7687}") String neo4jUri,
+        @Value("${app.neo4j.username:neo4j}") String neo4jUsername,
+        @Value("${app.neo4j.password:12345678}") String neo4jPassword,
+        @Value("${app.neo4j.connection-timeout-ms:2000}") long neo4jConnectionTimeoutMs,
+        @Value("${app.neo4j.acquisition-timeout-ms:2000}") long neo4jAcquisitionTimeoutMs,
+        @Value("${app.neo4j.retry-timeout-ms:800}") long neo4jRetryTimeoutMs,
+        @Value("${app.neo4j.failure-cooldown-ms:10000}") long neo4jFailureCooldownMs
+    ) {
         this.jdbcTemplate = jdbcTemplate;
         this.taxonomy = taxonomy;
         this.currentUserService = currentUserService;
@@ -81,16 +83,21 @@ public class KnowledgeController {
     @GetMapping("/catalog")
     public Map<String, Object> catalog() {
         List<Map<String, Object>> subjects = jdbcTemplate.queryForList(
-                "select name, description from subject_categories order by id");
+            "select name, description from subject_categories order by id"
+        );
         List<Map<String, Object>> resultSubjects = new ArrayList<Map<String, Object>>();
         for (Map<String, Object> subject : subjects) {
             String name = String.valueOf(subject.get("name"));
             Map<String, Object> item = new HashMap<String, Object>();
             item.put("name", name);
             item.put("description", subject.get("description"));
-            item.put("nodes", jdbcTemplate.queryForList(
+            item.put(
+                "nodes",
+                jdbcTemplate.queryForList(
                     "select id,title,node_level nodeLevel,description,sort_order sortOrder from knowledge_nodes where subject=? order by sort_order,id",
-                    name));
+                    name
+                )
+            );
             resultSubjects.add(item);
         }
         return ApiResponses.of("subjects", resultSubjects);
@@ -102,8 +109,10 @@ public class KnowledgeController {
     }
 
     @GetMapping("/knowledge-graph")
-    public Map<String, Object> knowledgeGraph(@RequestParam String subject,
-                                              @RequestParam(required = false, defaultValue = "") String path) {
+    public Map<String, Object> knowledgeGraph(
+        @RequestParam String subject,
+        @RequestParam(required = false, defaultValue = "") String path
+    ) {
         long startedAt = System.nanoTime();
         if (neo4jEnabled) {
             if (System.currentTimeMillis() < neo4jRetryAfterEpochMs) {
@@ -128,38 +137,57 @@ public class KnowledgeController {
             }
         }
         Map<String, Object> fallback = mysqlGraph(subject);
-        fallback.put("fallbackReason", neo4jEnabled ? "Neo4j 中暂无对应分类数据" : "Neo4j 尚未启用");
+        fallback.put(
+            "fallbackReason",
+            neo4jEnabled ? "Neo4j 中暂无对应分类数据" : "Neo4j 尚未启用"
+        );
         fallback.put("responseTimeMs", elapsedMilliseconds(startedAt));
         return fallback;
     }
 
     private String neo4jFallbackReason(Exception exception) {
         String message = String.valueOf(exception.getMessage()).toLowerCase();
-        if (message.contains("unauthorized") || message.contains("authentication") || message.contains("credentials")) {
+        if (
+            message.contains("unauthorized") ||
+            message.contains("authentication") ||
+            message.contains("credentials")
+        ) {
             return "Neo4j 认证失败，请检查 NEO4J_USERNAME 和 NEO4J_PASSWORD";
         }
-        if (message.contains("connection") || message.contains("routing") || message.contains("unavailable")) {
+        if (
+            message.contains("connection") ||
+            message.contains("routing") ||
+            message.contains("unavailable")
+        ) {
             return "Neo4j 连接失败，请确认 Study 实例正在运行";
         }
         return "Neo4j 图谱暂不可用，当前显示备用数据";
     }
 
     @PostMapping("/teacher/subjects")
-    public Map<String, Object> createSubject(@RequestHeader(value = "Authorization", required = false) String authorization,
-                                             @RequestBody Map<String, Object> body) {
+    public Map<String, Object> createSubject(
+        @RequestHeader(value = "Authorization", required = false) String authorization,
+        @RequestBody Map<String, Object> body
+    ) {
         currentUserService.requireTeacher(authorization);
         String name = text(body.get("name"));
         String description = text(body.get("description"));
         if (name.length() == 0) {
             throw new BusinessException(400, "Subject name cannot be empty.");
         }
-        jdbcTemplate.update("insert ignore into subject_categories(name,description) values(?,?)", name, description);
+        jdbcTemplate.update(
+            "insert ignore into subject_categories(name,description) values(?,?)",
+            name,
+            description
+        );
         return ApiResponses.ok();
     }
 
     @PostMapping("/teacher/knowledge-nodes")
-    public Map<String, Object> createKnowledgeNode(@RequestHeader(value = "Authorization", required = false) String authorization,
-                                                   @RequestBody Map<String, Object> body) {
+    public Map<String, Object> createKnowledgeNode(
+        @RequestHeader(value = "Authorization", required = false) String authorization,
+        @RequestBody Map<String, Object> body
+    ) {
         currentUserService.requireTeacher(authorization);
         String subject = text(body.get("subject"));
         String title = text(body.get("title"));
@@ -170,15 +198,23 @@ public class KnowledgeController {
             throw new BusinessException(400, "Subject and knowledge node title cannot be empty.");
         }
         jdbcTemplate.update("insert ignore into subject_categories(name) values(?)", subject);
-        jdbcTemplate.update("insert into knowledge_nodes(subject,title,node_level,description,sort_order) values(?,?,?,?,?)",
-                subject, title, nodeLevel, description, sortOrder);
+        jdbcTemplate.update(
+            "insert into knowledge_nodes(subject,title,node_level,description,sort_order) values(?,?,?,?,?)",
+            subject,
+            title,
+            nodeLevel,
+            description,
+            sortOrder
+        );
         return ApiResponses.ok();
     }
 
     @PutMapping("/teacher/knowledge-nodes/{id}")
-    public Map<String, Object> updateKnowledgeNode(@RequestHeader(value = "Authorization", required = false) String authorization,
-                                                   @PathVariable Long id,
-                                                   @RequestBody Map<String, Object> body) {
+    public Map<String, Object> updateKnowledgeNode(
+        @RequestHeader(value = "Authorization", required = false) String authorization,
+        @PathVariable Long id,
+        @RequestBody Map<String, Object> body
+    ) {
         currentUserService.requireTeacher(authorization);
         String subject = text(body.get("subject"));
         String title = text(body.get("title"));
@@ -189,14 +225,23 @@ public class KnowledgeController {
             throw new BusinessException(400, "Subject and knowledge node title cannot be empty.");
         }
         jdbcTemplate.update("insert ignore into subject_categories(name) values(?)", subject);
-        jdbcTemplate.update("update knowledge_nodes set subject=?,title=?,node_level=?,description=?,sort_order=? where id=?",
-                subject, title, nodeLevel, description, sortOrder, id);
+        jdbcTemplate.update(
+            "update knowledge_nodes set subject=?,title=?,node_level=?,description=?,sort_order=? where id=?",
+            subject,
+            title,
+            nodeLevel,
+            description,
+            sortOrder,
+            id
+        );
         return ApiResponses.ok();
     }
 
     @DeleteMapping("/teacher/knowledge-nodes/{id}")
-    public Map<String, Object> deleteKnowledgeNode(@RequestHeader(value = "Authorization", required = false) String authorization,
-                                                   @PathVariable Long id) {
+    public Map<String, Object> deleteKnowledgeNode(
+        @RequestHeader(value = "Authorization", required = false) String authorization,
+        @PathVariable Long id
+    ) {
         currentUserService.requireTeacher(authorization);
         jdbcTemplate.update("delete from knowledge_nodes where id=?", id);
         return ApiResponses.ok();
@@ -205,18 +250,24 @@ public class KnowledgeController {
     private Map<String, Object> neo4jGraph(String subject, String path) {
         Driver driver = neo4jDriver();
         ensureNeo4jTaxonomy(driver);
-        String cypher = ""
-                + "MATCH (n:KnowledgeNode) "
-                + "WHERE ($path <> '' AND coalesce(n.path, '') = $path) "
-                + "   OR ($path = '' AND coalesce(n.title, n.name, n.label, '') = $subject) "
-                + "WITH n ORDER BY coalesce(n.level, 999), coalesce(n.path, '') LIMIT 1 "
-                + "OPTIONAL MATCH (n)-[r1:CONTAINS]->(m:KnowledgeNode) "
-                + "OPTIONAL MATCH (m)-[r2:CONTAINS]->(k:KnowledgeNode) "
-                + "RETURN collect(distinct n) + collect(distinct m) + collect(distinct k) AS nodes, "
-                + "       collect(distinct r1) + collect(distinct r2) AS relationships";
+        String cypher =
+            "" +
+            "MATCH (n:KnowledgeNode) " +
+            "WHERE ($path <> '' AND coalesce(n.path, '') = $path) " +
+            "   OR ($path = '' AND coalesce(n.title, n.name, n.label, '') = $subject) " +
+            "WITH n ORDER BY coalesce(n.level, 999), coalesce(n.path, '') LIMIT 1 " +
+            "OPTIONAL MATCH (n)-[r1:CONTAINS]->(m:KnowledgeNode) " +
+            "OPTIONAL MATCH (m)-[r2:CONTAINS]->(k:KnowledgeNode) " +
+            "RETURN collect(distinct n) + collect(distinct m) + collect(distinct k) AS nodes, " +
+            "       collect(distinct r1) + collect(distinct r2) AS relationships";
         try (Session session = driver.session()) {
-            org.neo4j.driver.Record record = session.run(new Query(cypher, Values.parameters("subject", subject, "path", path))).single();
-            Map<String, Map<String, Object>> nodes = new LinkedHashMap<String, Map<String, Object>>();
+            org.neo4j.driver.Record record = session
+                .run(new Query(cypher, Values.parameters("subject", subject, "path", path)))
+                .single();
+            Map<String, Map<String, Object>> nodes = new LinkedHashMap<
+                String,
+                Map<String, Object>
+            >();
             List<Map<String, Object>> links = new ArrayList<Map<String, Object>>();
             for (org.neo4j.driver.Value value : record.get("nodes").values()) {
                 if (!value.isNull()) {
@@ -254,8 +305,9 @@ public class KnowledgeController {
         nodes.put(rootId, root);
 
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "select id,title,node_level nodeLevel,description,sort_order sortOrder from knowledge_nodes where subject=? order by sort_order,id",
-                subject);
+            "select id,title,node_level nodeLevel,description,sort_order sortOrder from knowledge_nodes where subject=? order by sort_order,id",
+            subject
+        );
         for (Map<String, Object> row : rows) {
             String id = "mysql-" + row.get("id");
             Map<String, Object> node = new HashMap<String, Object>();
@@ -282,7 +334,12 @@ public class KnowledgeController {
                 child.put("type", "point");
                 child.put("level", 2);
                 child.put("parentId", id);
-                child.put("description", "围绕“" + row.get("title") + "”继续拆解的细分知识点，可用于课前预习、练习设计和薄弱点追踪。");
+                child.put(
+                    "description",
+                    "围绕“" +
+                        row.get("title") +
+                        "”继续拆解的细分知识点，可用于课前预习、练习设计和薄弱点追踪。"
+                );
                 child.put("subject", subject);
                 nodes.put(childId, child);
 
@@ -346,12 +403,15 @@ public class KnowledgeController {
     private synchronized Driver neo4jDriver() {
         if (neo4jDriver == null) {
             Config config = Config.builder()
-                    .withConnectionTimeout(neo4jConnectionTimeoutMs, TimeUnit.MILLISECONDS)
-                    .withConnectionAcquisitionTimeout(neo4jAcquisitionTimeoutMs, TimeUnit.MILLISECONDS)
-                    .withMaxTransactionRetryTime(neo4jRetryTimeoutMs, TimeUnit.MILLISECONDS)
-                    .build();
+                .withConnectionTimeout(neo4jConnectionTimeoutMs, TimeUnit.MILLISECONDS)
+                .withConnectionAcquisitionTimeout(neo4jAcquisitionTimeoutMs, TimeUnit.MILLISECONDS)
+                .withMaxTransactionRetryTime(neo4jRetryTimeoutMs, TimeUnit.MILLISECONDS)
+                .build();
             Driver candidate = GraphDatabase.driver(
-                    neo4jUri, AuthTokens.basic(neo4jUsername, neo4jPassword), config);
+                neo4jUri,
+                AuthTokens.basic(neo4jUsername, neo4jPassword),
+                config
+            );
             try {
                 candidate.verifyConnectivity();
                 neo4jDriver = candidate;
@@ -390,22 +450,41 @@ public class KnowledgeController {
             }
             List<Map<String, Object>> nodes = new ArrayList<Map<String, Object>>();
             List<Map<String, Object>> relationships = new ArrayList<Map<String, Object>>();
-            collectTaxonomy(defaultKnowledgeCategories(), new ArrayList<String>(), new ArrayList<String>(), "", nodes, relationships);
+            collectTaxonomy(
+                defaultKnowledgeCategories(),
+                new ArrayList<String>(),
+                new ArrayList<String>(),
+                "",
+                nodes,
+                relationships
+            );
             try (Session session = driver.session()) {
-                session.executeWrite(transaction -> {
-                    transaction.run(new Query(""
-                                    + "UNWIND $nodes AS row "
-                                    + "MERGE (n:KnowledgeNode {key: row.key}) "
-                                    + "SET n.title = row.title, n.name = row.title, n.code = row.code, "
-                                    + "    n.level = row.level, n.description = row.description, n.learningStage = row.learningStage, "
-                                    + "    n.path = row.path, n.source = 'learning-platform'",
-                            Values.parameters("nodes", nodes))).consume();
-                    transaction.run(new Query(""
-                                    + "UNWIND $relationships AS row "
-                                    + "MATCH (parent:KnowledgeNode {key: row.parentKey}) "
-                                    + "MATCH (child:KnowledgeNode {key: row.childKey}) "
-                                    + "MERGE (parent)-[:CONTAINS]->(child)",
-                            Values.parameters("relationships", relationships))).consume();
+                session.executeWrite((transaction) -> {
+                    transaction
+                        .run(
+                            new Query(
+                                "" +
+                                    "UNWIND $nodes AS row " +
+                                    "MERGE (n:KnowledgeNode {key: row.key}) " +
+                                    "SET n.title = row.title, n.name = row.title, n.code = row.code, " +
+                                    "    n.level = row.level, n.description = row.description, n.learningStage = row.learningStage, " +
+                                    "    n.path = row.path, n.source = 'learning-platform'",
+                                Values.parameters("nodes", nodes)
+                            )
+                        )
+                        .consume();
+                    transaction
+                        .run(
+                            new Query(
+                                "" +
+                                    "UNWIND $relationships AS row " +
+                                    "MATCH (parent:KnowledgeNode {key: row.parentKey}) " +
+                                    "MATCH (child:KnowledgeNode {key: row.childKey}) " +
+                                    "MERGE (parent)-[:CONTAINS]->(child)",
+                                Values.parameters("relationships", relationships)
+                            )
+                        )
+                        .consume();
                     return null;
                 });
             }
@@ -414,12 +493,14 @@ public class KnowledgeController {
     }
 
     @SuppressWarnings("unchecked")
-    private void collectTaxonomy(List<Map<String, Object>> items,
-                                 List<String> parentCodes,
-                                 List<String> parentNames,
-                                 String parentKey,
-                                 List<Map<String, Object>> nodes,
-                                 List<Map<String, Object>> relationships) {
+    private void collectTaxonomy(
+        List<Map<String, Object>> items,
+        List<String> parentCodes,
+        List<String> parentNames,
+        String parentKey,
+        List<Map<String, Object>> nodes,
+        List<Map<String, Object>> relationships
+    ) {
         for (Map<String, Object> item : items) {
             String title = text(item.get("name"));
             String code = text(item.get("code"));
@@ -448,7 +529,14 @@ public class KnowledgeController {
 
             Object childValue = item.get("children");
             if (childValue instanceof List && !((List<?>) childValue).isEmpty()) {
-                collectTaxonomy((List<Map<String, Object>>) childValue, codes, names, key, nodes, relationships);
+                collectTaxonomy(
+                    (List<Map<String, Object>>) childValue,
+                    codes,
+                    names,
+                    key,
+                    nodes,
+                    relationships
+                );
             }
         }
     }
@@ -465,7 +553,10 @@ public class KnowledgeController {
         node.put("subject", nodeText(source, "subject", "category"));
         node.put("type", nodeType(source, subject));
         node.put("labels", labels(source));
-        if (source.containsKey("learningStage") && !source.get("learningStage").isNull()) node.put("learningStage", source.get("learningStage").asString());
+        if (source.containsKey("learningStage") && !source.get("learningStage").isNull()) node.put(
+            "learningStage",
+            source.get("learningStage").asString()
+        );
         if (source.containsKey("level") && !source.get("level").isNull()) {
             node.put("level", source.get("level").asInt());
         }
@@ -481,7 +572,11 @@ public class KnowledgeController {
         nodes.put(id, node);
     }
 
-    private void ensureRoot(Map<String, Map<String, Object>> nodes, List<Map<String, Object>> links, String subject) {
+    private void ensureRoot(
+        Map<String, Map<String, Object>> nodes,
+        List<Map<String, Object>> links,
+        String subject
+    ) {
         String rootId = null;
         for (Map<String, Object> node : nodes.values()) {
             if (subject.equals(node.get("label")) || "root".equals(node.get("type"))) {
@@ -515,10 +610,12 @@ public class KnowledgeController {
         }
     }
 
-    private Map<String, Object> graphResult(String source,
-                                            Map<String, Map<String, Object>> nodeMap,
-                                            List<Map<String, Object>> links,
-                                            String subject) {
+    private Map<String, Object> graphResult(
+        String source,
+        Map<String, Map<String, Object>> nodeMap,
+        List<Map<String, Object>> links,
+        String subject
+    ) {
         List<Map<String, Object>> nodes = new ArrayList<Map<String, Object>>(nodeMap.values());
         Map<String, Object> stats = new HashMap<String, Object>();
         stats.put("completionRate", learningRate(subject, 100));
@@ -534,13 +631,15 @@ public class KnowledgeController {
     private int learningRate(String subject, int threshold) {
         try {
             Map<String, Object> row = jdbcTemplate.queryForMap(
-                    "select count(*) total,sum(case when progress>=? then 1 else 0 end) done from learning_records where subject=? and knowledge_node is not null",
-                    threshold, subject);
+                "select count(*) total,sum(case when progress>=? then 1 else 0 end) done from learning_records where subject=? and knowledge_node is not null",
+                threshold,
+                subject
+            );
             int total = number(row.get("total"), 0);
             if (total == 0) {
                 return 0;
             }
-            return Math.round(number(row.get("done"), 0) * 100f / total);
+            return Math.round((number(row.get("done"), 0) * 100f) / total);
         } catch (Exception ignored) {
             return 0;
         }
@@ -600,7 +699,14 @@ public class KnowledgeController {
     }
 
     private String codeFromName(String name) {
-        return name == null ? "" : name.trim().replace("#", "sharp").replace("+", "plus").replaceAll("\\s+", "_").toLowerCase();
+        return name == null
+            ? ""
+            : name
+                  .trim()
+                  .replace("#", "sharp")
+                  .replace("+", "plus")
+                  .replaceAll("\\s+", "_")
+                  .toLowerCase();
     }
 
     private String text(Object value) {

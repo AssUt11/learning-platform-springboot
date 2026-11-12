@@ -1,0 +1,62 @@
+.demo-login {
+  margin-bottom: 24px;
+}
+
+.demo-login h3 {
+  margin: 0 0 12px;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.demo-login-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.demo-login-options button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 90px;
+  padding: 12px 6px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.demo-login-options strong {
+  font-size: 13px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+.demo-login-options small,
+.demo-login > p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.demo-login > p {
+  margin: 10px 0 0;
+}
+
+.demo-login-options button:hover:not(:disabled) {
+  border-color: var(--ink);
+}
+
+.demo-login-options button:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+
+.demo-login-options button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}

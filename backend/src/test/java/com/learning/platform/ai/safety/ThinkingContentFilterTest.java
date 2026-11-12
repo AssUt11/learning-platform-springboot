@@ -1,10 +1,11 @@
 package com.learning.platform.ai.safety;
 
-import org.junit.jupiter.api.Test;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import org.junit.jupiter.api.Test;
+
 class ThinkingContentFilterTest {
+
     @Test
     void leavesNormalContentVisible() {
         ThinkingContentFilter filter = new ThinkingContentFilter();
