@@ -1,11 +1,5 @@
 package com.learning.platform.service;
 
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.stereotype.Service;
-
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
@@ -15,9 +9,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
 
 @Service
 public class TokenService {
+
     private static final String HMAC_ALGORITHM = "HmacSHA256";
     private static final String TOKEN_VERSION = "v1";
     private static final int MINIMUM_SECRET_BYTES = 32;
@@ -28,16 +28,23 @@ public class TokenService {
     private final byte[] secret;
     private final long tokenTtlSeconds;
 
-    public TokenService(JdbcTemplate jdbcTemplate,
-                        @Value("${app.auth.token-secret}") String tokenSecret,
-                        @Value("${app.auth.token-ttl-seconds:86400}") long tokenTtlSeconds) {
+    public TokenService(
+        JdbcTemplate jdbcTemplate,
+        @Value("${app.auth.token-secret}") String tokenSecret,
+        @Value("${app.auth.token-ttl-seconds:86400}") long tokenTtlSeconds
+    ) {
         this.jdbcTemplate = jdbcTemplate;
-        this.secret = tokenSecret == null ? new byte[0] : tokenSecret.getBytes(StandardCharsets.UTF_8);
+        this.secret =
+            tokenSecret == null ? new byte[0] : tokenSecret.getBytes(StandardCharsets.UTF_8);
         if (secret.length < MINIMUM_SECRET_BYTES) {
-            throw new IllegalStateException("app.auth.token-secret must contain at least 32 bytes.");
+            throw new IllegalStateException(
+                "app.auth.token-secret must contain at least 32 bytes."
+            );
         }
         if (tokenTtlSeconds <= 0 || tokenTtlSeconds > 31_536_000L) {
-            throw new IllegalStateException("app.auth.token-ttl-seconds must be between 1 and 31536000.");
+            throw new IllegalStateException(
+                "app.auth.token-ttl-seconds must be between 1 and 31536000."
+            );
         }
         this.tokenTtlSeconds = tokenTtlSeconds;
     }
@@ -47,8 +54,14 @@ public class TokenService {
         long issuedAt = Instant.now().getEpochSecond();
         long expiresAt = Math.addExact(issuedAt, tokenTtlSeconds);
         String nonce = UUID.randomUUID().toString().replace("-", "");
-        String payload = String.join("|", TOKEN_VERSION, String.valueOf(userId),
-                String.valueOf(issuedAt), String.valueOf(expiresAt), nonce);
+        String payload = String.join(
+            "|",
+            TOKEN_VERSION,
+            String.valueOf(userId),
+            String.valueOf(issuedAt),
+            String.valueOf(expiresAt),
+            nonce
+        );
         String encodedPayload = encode(payload.getBytes(StandardCharsets.UTF_8));
         return encodedPayload + "." + encode(sign(encodedPayload));
     }
@@ -71,9 +84,16 @@ public class TokenService {
                 return null;
             }
 
-            String payload = new String(Base64.getUrlDecoder().decode(tokenParts[0]), StandardCharsets.UTF_8);
+            String payload = new String(
+                Base64.getUrlDecoder().decode(tokenParts[0]),
+                StandardCharsets.UTF_8
+            );
             String[] payloadParts = payload.split("\\|", -1);
-            if (payloadParts.length != 5 || !TOKEN_VERSION.equals(payloadParts[0]) || payloadParts[4].length() != 32) {
+            if (
+                payloadParts.length != 5 ||
+                !TOKEN_VERSION.equals(payloadParts[0]) ||
+                payloadParts[4].length() != 32
+            ) {
                 return null;
             }
 
@@ -93,7 +113,9 @@ public class TokenService {
 
     private Map<String, Object> loadCurrentUser(long userId) {
         List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "select id,name,email,role from users where id=?", userId);
+            "select id,name,email,role from users where id=?",
+            userId
+        );
         if (rows.size() != 1) {
             return null;
         }

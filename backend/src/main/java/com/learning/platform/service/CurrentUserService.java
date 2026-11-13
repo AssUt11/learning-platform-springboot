@@ -1,12 +1,12 @@
 package com.learning.platform.service;
 
 import com.learning.platform.exception.BusinessException;
-import org.springframework.stereotype.Service;
-
 import java.util.Map;
+import org.springframework.stereotype.Service;
 
 @Service
 public class CurrentUserService {
+
     private final TokenService tokenService;
 
     public CurrentUserService(TokenService tokenService) {

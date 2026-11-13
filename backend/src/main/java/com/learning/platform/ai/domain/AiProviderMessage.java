@@ -1,6 +1,7 @@
 package com.learning.platform.ai.domain;
 
 public class AiProviderMessage {
+
     private final String role;
     private final String content;
 
@@ -9,6 +10,11 @@ public class AiProviderMessage {
         this.content = content;
     }
 
-    public String getRole() { return role; }
-    public String getContent() { return content; }
+    public String getRole() {
+        return role;
+    }
+
+    public String getContent() {
+        return content;
+    }
 }

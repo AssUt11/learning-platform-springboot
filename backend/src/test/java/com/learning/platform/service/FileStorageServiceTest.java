@@ -1,13 +1,5 @@
 package com.learning.platform.service;
 
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-import org.springframework.mock.web.MockMultipartFile;
-
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -15,7 +7,15 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.mock.web.MockMultipartFile;
+
 class FileStorageServiceTest {
+
     @TempDir
     Path uploadDir;
 
@@ -23,7 +23,11 @@ class FileStorageServiceTest {
     void storesAllowedFileWithGeneratedName() throws Exception {
         FileStorageService service = new FileStorageService(uploadDir.toString());
         MockMultipartFile file = new MockMultipartFile(
-                "file", "lesson.pdf", "application/pdf", "content".getBytes(StandardCharsets.UTF_8));
+            "file",
+            "lesson.pdf",
+            "application/pdf",
+            "content".getBytes(StandardCharsets.UTF_8)
+        );
 
         String url = service.storeResourceFile(file);
 
@@ -39,9 +43,15 @@ class FileStorageServiceTest {
     void rejectsUnsupportedExtension() {
         FileStorageService service = new FileStorageService(uploadDir.toString());
         MockMultipartFile file = new MockMultipartFile(
-                "file", "payload.exe", "application/octet-stream", new byte[]{1, 2, 3});
+            "file",
+            "payload.exe",
+            "application/octet-stream",
+            new byte[] { 1, 2, 3 }
+        );
 
-        RuntimeException exception = assertThrows(RuntimeException.class, () -> service.storeResourceFile(file));
+        RuntimeException exception = assertThrows(RuntimeException.class, () ->
+            service.storeResourceFile(file)
+        );
 
         assertEquals("Unsupported file type.", exception.getMessage());
     }
@@ -49,7 +59,12 @@ class FileStorageServiceTest {
     @Test
     void ignoresEmptyFile() throws Exception {
         FileStorageService service = new FileStorageService(uploadDir.toString());
-        MockMultipartFile file = new MockMultipartFile("file", "empty.txt", "text/plain", new byte[0]);
+        MockMultipartFile file = new MockMultipartFile(
+            "file",
+            "empty.txt",
+            "text/plain",
+            new byte[0]
+        );
 
         assertNull(service.storeResourceFile(file));
     }
@@ -72,8 +87,9 @@ class FileStorageServiceTest {
         Path outside = uploadDir.resolve("outside.pdf");
         Files.writeString(outside, "keep");
 
-        assertThrows(RuntimeException.class,
-                () -> service.deleteStoredFile("/uploads/../outside.pdf"));
+        assertThrows(RuntimeException.class, () ->
+            service.deleteStoredFile("/uploads/../outside.pdf")
+        );
         assertTrue(Files.exists(outside));
     }
 }

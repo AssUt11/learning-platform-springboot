@@ -31,9 +31,10 @@ client.interceptors.response.use(
   async (error) => {
     if (axios.isCancel(error)) return Promise.reject(error);
     const responseData = await readErrorPayload(error.response?.data);
-    const message = responseData?.message
-      || responseData?.data?.message
-      || (error.code === "ECONNABORTED" ? "请求超时，请稍后重试" : "网络异常，请检查后端服务");
+    const message =
+      responseData?.message ||
+      responseData?.data?.message ||
+      (error.code === "ECONNABORTED" ? "请求超时，请稍后重试" : "网络异常，请检查后端服务");
     const requestError = new Error(message);
     requestError.status = error.response?.status;
     if (isAuthExpiredError(requestError) && !isAuthenticationRequest(error.config?.url)) {

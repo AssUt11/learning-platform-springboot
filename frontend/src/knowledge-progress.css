@@ -1,0 +1,95 @@
+.graph-page {
+  --knowledge-completed: #49796b;
+  --knowledge-completed-dark: #385e53;
+  --knowledge-completed-soft: #eaf2ee;
+}
+
+.graph-page .graph-stage :is(.graph-node, .center-node).learning-completed {
+  color: #fff;
+  background: var(--knowledge-completed);
+  border: 2px solid var(--knowledge-completed-dark);
+  box-shadow: none;
+}
+.graph-page .graph-stage :is(.graph-node, .center-node).learning-completed:is(.active, :hover) {
+  color: #fff;
+  background: var(--knowledge-completed-dark);
+  box-shadow: none;
+  outline: 2px solid var(--knowledge-completed);
+  outline-offset: 3px;
+}
+.graph-page .graph-stage :is(.graph-node, .center-node).learning-in-progress {
+  color: #805c2a;
+  background: #faf2df;
+  border: 2px solid #c8a66b;
+  box-shadow: none;
+}
+.graph-page .graph-stage :is(.graph-node, .center-node).learning-in-progress:is(.active, :hover) {
+  color: #6b491e;
+  background: #f3e5c6;
+  box-shadow: none;
+  outline: 2px solid #c8a66b;
+  outline-offset: 3px;
+}
+.graph-page .graph-completion-mark {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--knowledge-completed);
+  background: #fff;
+  border: 2px solid var(--knowledge-completed);
+  border-radius: 50%;
+  padding: 1px;
+  pointer-events: none;
+}
+.graph-page .graph-canvas line.knowledge-link-completed {
+  stroke: #49796ba6;
+}
+.graph-page .graph-legend {
+  flex-wrap: wrap;
+  max-width: calc(100% - 170px);
+  row-gap: 8px;
+}
+.graph-page .graph-legend .knowledge-not-started-dot {
+  background: var(--paper-inset, #ebeff3);
+  border: 1px solid var(--ui-control-border, #b5c0ca);
+}
+.graph-page .graph-legend .knowledge-in-progress-dot {
+  background: #faf2df;
+  border: 1px solid #c8a66b;
+}
+.graph-page .graph-legend .knowledge-completed-dot {
+  background: var(--knowledge-completed);
+}
+.knowledge-progress-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 11px 14px;
+  margin: 14px 0;
+  border: 1px solid var(--paper-border, #dce2e8);
+  border-radius: 10px;
+  background: var(--paper-section, #f3f5f7);
+  color: var(--paper-ink, #253247);
+  font-size: 13px;
+}
+.knowledge-progress-summary > span {
+  margin-left: auto;
+}
+.knowledge-progress-summary.learning-completed {
+  color: var(--knowledge-completed-dark);
+  background: var(--knowledge-completed-soft);
+  border-color: #b6cec3;
+}
+.knowledge-progress-summary.learning-in-progress {
+  color: #805c2a;
+  background: #faf2df;
+  border-color: #e3d3af;
+}
+.node-detail .knowledge-progress-hint {
+  margin-top: 0;
+  color: var(--paper-muted, #5f6e83);
+  font-size: 12px;
+}

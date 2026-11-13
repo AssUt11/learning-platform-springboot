@@ -1,6 +1,7 @@
 package com.learning.platform.vo;
 
 public class LessonAssetView {
+
     private final long id;
     private final String assetType;
     private final String fileName;
@@ -11,8 +12,17 @@ public class LessonAssetView {
     private final String transcodingStatus;
     private final String playbackUrl;
 
-    public LessonAssetView(long id, String assetType, String fileName, Long fileSize, String mimeType,
-                           String coverUrl, String contentText, String transcodingStatus, String playbackUrl) {
+    public LessonAssetView(
+        long id,
+        String assetType,
+        String fileName,
+        Long fileSize,
+        String mimeType,
+        String coverUrl,
+        String contentText,
+        String transcodingStatus,
+        String playbackUrl
+    ) {
         this.id = id;
         this.assetType = assetType;
         this.fileName = fileName;
@@ -24,13 +34,39 @@ public class LessonAssetView {
         this.playbackUrl = playbackUrl;
     }
 
-    public long getId() { return id; }
-    public String getAssetType() { return assetType; }
-    public String getFileName() { return fileName; }
-    public Long getFileSize() { return fileSize; }
-    public String getMimeType() { return mimeType; }
-    public String getCoverUrl() { return coverUrl; }
-    public String getContentText() { return contentText; }
-    public String getTranscodingStatus() { return transcodingStatus; }
-    public String getPlaybackUrl() { return playbackUrl; }
+    public long getId() {
+        return id;
+    }
+
+    public String getAssetType() {
+        return assetType;
+    }
+
+    public String getFileName() {
+        return fileName;
+    }
+
+    public Long getFileSize() {
+        return fileSize;
+    }
+
+    public String getMimeType() {
+        return mimeType;
+    }
+
+    public String getCoverUrl() {
+        return coverUrl;
+    }
+
+    public String getContentText() {
+        return contentText;
+    }
+
+    public String getTranscodingStatus() {
+        return transcodingStatus;
+    }
+
+    public String getPlaybackUrl() {
+        return playbackUrl;
+    }
 }

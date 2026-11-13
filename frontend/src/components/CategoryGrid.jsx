@@ -17,7 +17,10 @@ export default function CategoryGrid({ categories, onOpenCatalog }) {
               <button className="home-catalog-main" onClick={() => onOpenCatalog(category.name)}>
                 <span className="category-index">0{index + 1}</span>
                 <strong>{category.name}</strong>
-                <span><GitBranch size={14} />进入智慧图谱</span>
+                <span>
+                  <GitBranch size={14} />
+                  进入智慧图谱
+                </span>
               </button>
               <div className="category-card-stats">
                 <span>{category.courseCount || 0} 门课程</span>
@@ -26,8 +29,12 @@ export default function CategoryGrid({ categories, onOpenCatalog }) {
               </div>
               <div className="home-subcategory-list">
                 {(category.nodes || []).slice(0, 5).map((node) => (
-                  <button key={`${category.name}-${node.title}`} onClick={() => onOpenCatalog(category.name, node)}>
-                    {node.title}<ArrowRight size={13} />
+                  <button
+                    key={`${category.name}-${node.title}`}
+                    onClick={() => onOpenCatalog(category.name, node)}
+                  >
+                    {node.title}
+                    <ArrowRight size={13} />
                   </button>
                 ))}
               </div>

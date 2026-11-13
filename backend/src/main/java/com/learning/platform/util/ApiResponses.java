@@ -4,8 +4,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 public final class ApiResponses {
-    private ApiResponses() {
-    }
+
+    private ApiResponses() {}
 
     public static Map<String, Object> ok() {
         Map<String, Object> result = new HashMap<String, Object>();

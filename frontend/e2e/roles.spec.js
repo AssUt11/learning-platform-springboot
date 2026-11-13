@@ -17,7 +17,9 @@ async function cleanupUser(email) {
     database: process.env.E2E_DB_NAME || "learning_platform"
   });
   try {
-    await connection.execute("delete from users where email=? and email like 'e2e-%@zhidu.local'", [email]);
+    await connection.execute("delete from users where email=? and email like 'e2e-%@zhidu.local'", [
+      email
+    ]);
   } finally {
     await connection.end();
   }
@@ -84,8 +86,12 @@ test("教师注册后进入课程创作工作台", async ({ page }, testInfo) =>
 test("管理员登录后进入内容治理中心", async ({ page }) => {
   const pageErrors = collectPageErrors(page);
   await page.goto("/");
-  await page.getByPlaceholder("name@example.com").fill(process.env.E2E_ADMIN_EMAIL || "admin@zhidu.local");
-  await page.getByPlaceholder("请输入密码").fill(process.env.E2E_ADMIN_PASSWORD || "admin-dev-2026");
+  await page
+    .getByPlaceholder("name@example.com")
+    .fill(process.env.E2E_ADMIN_EMAIL || "admin@zhidu.local");
+  await page
+    .getByPlaceholder("请输入密码")
+    .fill(process.env.E2E_ADMIN_PASSWORD || "admin-dev-2026");
   await page.getByRole("button", { name: "登录系统" }).click();
 
   await expect(page.getByRole("heading", { name: "内容治理与站点运行中心" })).toBeVisible();

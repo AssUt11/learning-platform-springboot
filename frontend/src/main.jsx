@@ -1,7 +1,6 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { useRef } from "react";
-import { flushSync } from "react-dom";
 import {
   AlertTriangle,
   ArrowRight,
@@ -44,18 +43,88 @@ import LearningPathGraph from "./components/LearningPathGraph";
 import CategoryCascader from "./components/CategoryCascader";
 import SearchPanel from "./components/SearchPanel";
 import CourseCard from "./components/CourseCard";
+import CourseCover, { CourseArtworkCredit } from "./components/CourseCover";
+import CourseLearningHighlights from "./components/CourseLearningHighlights";
+import LearningWorkbench from "./components/LearningWorkbench";
 import CourseVideo from "./components/CourseVideo";
+import CourseLoading from "./components/CourseLoading";
 import CourseLearningPage from "./components/CourseLearningPage";
 import request from "./utils/request";
 import { clearAuthStorage, handleActionError } from "./utils/auth";
+import useAgentAnalysis from "./utils/useAgentAnalysis";
+import AgentChatPage from "./components/AgentChatPage";
+import TeacherCourseEditor from "./components/TeacherCourseEditor";
+import GenerationStatus from "./components/GenerationStatus";
+import LearningPlanningPage from "./components/LearningPlanningPage";
+import LearningPlanSummary from "./components/LearningPlanSummary";
+import { getLearningProfile } from "./api/planning";
+import { getKnowledgeCourseTargets } from "./api/knowledge";
+import { LEARNING_STAGES, inferLearningStage, stageLabel } from "./utils/learningStages";
 import { getCategories, getKnowledgeCategoryTree } from "./api/category";
-import { addCourseNote, addCourseQuestion, deleteCourseNote, getCourseCommunity, getCourseDetail, getCourses, submitCourseReview } from "./api/course";
-import { getCourseLearningProgress, getLessonPlayback, getResumeLearning } from "./api/learning";
+import {
+  addCourseNote,
+  addCourseQuestion,
+  deleteCourseNote,
+  getCourseCommunity,
+  getCourseDetail,
+  getCourses,
+  submitCourseReview
+} from "./api/course";
+import {
+  getCourseLearningProgress,
+  getKnowledgeProgress,
+  getLessonPlayback,
+  getResumeLearning
+} from "./api/learning";
+import {
+  createKnowledgeProgress,
+  knowledgeRecordForNode,
+  knowledgeStatusLabel,
+  summarizeKnowledgeProgress
+} from "./utils/knowledgeProgress";
+import { buildStageGraph, knowledgeLeavesForPath } from "./utils/stageGraph";
+import usePageMotion from "./utils/usePageMotion";
+import "./design-tokens.css";
 import "./styles.css";
+import "./ui-surfaces.css";
+import "./ink-generation.css";
+import "./knowledge-progress.css";
+import "./learning-planning.css";
+import "./navigation.css";
+import "./demo-login.css";
+import "./loading.css";
+import "./course-discovery.css";
+import "./knowledge-course-targets.css";
 
 const api = request;
 
-const subjects = ["Java", "C#", "Python", "数据库", "前端开发", "软件测试", "机器学习", "深度学习", "自然语言处理", "计算机视觉", "Hadoop", "Spark", "数据仓库", "数据可视化", "Linux", "Docker", "Kubernetes", "微服务", "Web安全", "密码学", "网络协议安全", "安全运维", "移动开发", "物联网", "嵌入式开发"];
+const subjects = [
+  "Java",
+  "C#",
+  "Python",
+  "数据库",
+  "前端开发",
+  "软件测试",
+  "机器学习",
+  "深度学习",
+  "自然语言处理",
+  "计算机视觉",
+  "Hadoop",
+  "Spark",
+  "数据仓库",
+  "数据可视化",
+  "Linux",
+  "Docker",
+  "Kubernetes",
+  "微服务",
+  "Web安全",
+  "密码学",
+  "网络协议安全",
+  "安全运维",
+  "移动开发",
+  "物联网",
+  "嵌入式开发"
+];
 
 const knowledgeCategories = [
   {
@@ -63,12 +132,96 @@ const knowledgeCategories = [
     value: "software_engineering",
     description: "面向软件项目开发、测试、协作和交付的综合学习大类。",
     children: [
-      { label: "Java", value: "java", children: ["Java基础", "数据类型与变量", "流程控制", "面向对象", "集合框架", "异常处理", "IO流", "多线程", "JDBC", "Maven", "Spring", "Spring MVC", "Spring Boot", "MyBatis Plus"].map(categoryLeaf) },
-      { label: "Python", value: "python", children: ["Python基础", "数据类型", "函数", "面向对象", "文件处理", "异常处理", "爬虫基础", "Flask", "Django", "数据分析", "自动化脚本"].map(categoryLeaf) },
-      { label: "C#", value: "csharp", children: ["C#基础", "面向对象", "集合", "LINQ", "WinForms", "WPF", "ASP.NET", ".NET Core"].map(categoryLeaf) },
-      { label: "前端开发", value: "frontend", children: ["HTML", "CSS", "JavaScript", "TypeScript", "DOM", "Ajax", "Axios", "Vue", "React", "Vite", "Element Plus"].map(categoryLeaf) },
-      { label: "数据库", value: "database", children: ["SQL基础", "MySQL", "表设计", "索引", "事务", "锁机制", "Redis", "MongoDB", "数据库优化"].map(categoryLeaf) },
-      { label: "软件测试", value: "software_testing", children: ["测试基础", "单元测试", "接口测试", "自动化测试", "性能测试", "测试报告"].map(categoryLeaf) }
+      {
+        label: "Java",
+        value: "java",
+        children: [
+          "Java基础",
+          "数据类型与变量",
+          "流程控制",
+          "面向对象",
+          "集合框架",
+          "异常处理",
+          "IO流",
+          "多线程",
+          "JDBC",
+          "Maven",
+          "Spring",
+          "Spring MVC",
+          "Spring Boot",
+          "MyBatis Plus"
+        ].map(categoryLeaf)
+      },
+      {
+        label: "Python",
+        value: "python",
+        children: [
+          "Python基础",
+          "数据类型",
+          "函数",
+          "面向对象",
+          "文件处理",
+          "异常处理",
+          "爬虫基础",
+          "Flask",
+          "Django",
+          "数据分析",
+          "自动化脚本"
+        ].map(categoryLeaf)
+      },
+      {
+        label: "C#",
+        value: "csharp",
+        children: [
+          "C#基础",
+          "面向对象",
+          "集合",
+          "LINQ",
+          "WinForms",
+          "WPF",
+          "ASP.NET",
+          ".NET Core"
+        ].map(categoryLeaf)
+      },
+      {
+        label: "前端开发",
+        value: "frontend",
+        children: [
+          "HTML",
+          "CSS",
+          "JavaScript",
+          "TypeScript",
+          "DOM",
+          "Ajax",
+          "Axios",
+          "Vue",
+          "React",
+          "Vite",
+          "Element Plus"
+        ].map(categoryLeaf)
+      },
+      {
+        label: "数据库",
+        value: "database",
+        children: [
+          "SQL基础",
+          "MySQL",
+          "表设计",
+          "索引",
+          "事务",
+          "锁机制",
+          "Redis",
+          "MongoDB",
+          "数据库优化"
+        ].map(categoryLeaf)
+      },
+      {
+        label: "软件测试",
+        value: "software_testing",
+        children: ["测试基础", "单元测试", "接口测试", "自动化测试", "性能测试", "测试报告"].map(
+          categoryLeaf
+        )
+      }
     ]
   },
   {
@@ -76,10 +229,28 @@ const knowledgeCategories = [
     value: "ai",
     description: "从机器学习、深度学习到自然语言处理和视觉任务的学习大类。",
     children: [
-      { label: "机器学习", value: "machine_learning", children: ["线性回归", "逻辑回归", "决策树", "随机森林", "SVM", "KNN", "模型评估"].map(categoryLeaf) },
-      { label: "深度学习", value: "deep_learning", children: ["神经网络", "CNN", "RNN", "LSTM", "Transformer", "PyTorch"].map(categoryLeaf) },
-      { label: "自然语言处理", value: "nlp", children: ["分词", "文本分类", "词向量", "BERT", "GPT", "大语言模型"].map(categoryLeaf) },
-      { label: "计算机视觉", value: "computer_vision", children: ["图像处理", "图像分类", "目标检测", "图像分割", "OpenCV"].map(categoryLeaf) }
+      {
+        label: "机器学习",
+        value: "machine_learning",
+        children: ["线性回归", "逻辑回归", "决策树", "随机森林", "SVM", "KNN", "模型评估"].map(
+          categoryLeaf
+        )
+      },
+      {
+        label: "深度学习",
+        value: "deep_learning",
+        children: ["神经网络", "CNN", "RNN", "LSTM", "Transformer", "PyTorch"].map(categoryLeaf)
+      },
+      {
+        label: "自然语言处理",
+        value: "nlp",
+        children: ["分词", "文本分类", "词向量", "BERT", "GPT", "大语言模型"].map(categoryLeaf)
+      },
+      {
+        label: "计算机视觉",
+        value: "computer_vision",
+        children: ["图像处理", "图像分类", "目标检测", "图像分割", "OpenCV"].map(categoryLeaf)
+      }
     ]
   },
   {
@@ -87,10 +258,26 @@ const knowledgeCategories = [
     value: "big_data",
     description: "围绕数据采集、存储、计算、建模和可视化的学习大类。",
     children: [
-      { label: "Hadoop", value: "hadoop", children: ["HDFS", "MapReduce", "YARN"].map(categoryLeaf) },
-      { label: "Spark", value: "spark", children: ["Spark Core", "Spark SQL", "Spark Streaming", "MLlib"].map(categoryLeaf) },
-      { label: "数据仓库", value: "data_warehouse", children: ["Hive", "数据建模", "ETL", "OLAP"].map(categoryLeaf) },
-      { label: "数据可视化", value: "data_visualization", children: ["ECharts", "图表设计", "数据看板", "报表分析"].map(categoryLeaf) }
+      {
+        label: "Hadoop",
+        value: "hadoop",
+        children: ["HDFS", "MapReduce", "YARN"].map(categoryLeaf)
+      },
+      {
+        label: "Spark",
+        value: "spark",
+        children: ["Spark Core", "Spark SQL", "Spark Streaming", "MLlib"].map(categoryLeaf)
+      },
+      {
+        label: "数据仓库",
+        value: "data_warehouse",
+        children: ["Hive", "数据建模", "ETL", "OLAP"].map(categoryLeaf)
+      },
+      {
+        label: "数据可视化",
+        value: "data_visualization",
+        children: ["ECharts", "图表设计", "数据看板", "报表分析"].map(categoryLeaf)
+      }
     ]
   },
   {
@@ -98,10 +285,26 @@ const knowledgeCategories = [
     value: "cloud_computing",
     description: "面向 Linux、容器、集群编排和云原生服务治理的学习大类。",
     children: [
-      { label: "Linux", value: "linux", children: ["常用命令", "文件权限", "Shell脚本", "进程管理"].map(categoryLeaf) },
-      { label: "Docker", value: "docker", children: ["镜像", "容器", "Dockerfile", "Docker Compose", "容器部署"].map(categoryLeaf) },
-      { label: "Kubernetes", value: "kubernetes", children: ["Pod", "Service", "Deployment", "ConfigMap", "Ingress"].map(categoryLeaf) },
-      { label: "微服务", value: "microservices", children: ["服务注册", "服务发现", "网关", "配置中心", "分布式事务"].map(categoryLeaf) }
+      {
+        label: "Linux",
+        value: "linux",
+        children: ["常用命令", "文件权限", "Shell脚本", "进程管理"].map(categoryLeaf)
+      },
+      {
+        label: "Docker",
+        value: "docker",
+        children: ["镜像", "容器", "Dockerfile", "Docker Compose", "容器部署"].map(categoryLeaf)
+      },
+      {
+        label: "Kubernetes",
+        value: "kubernetes",
+        children: ["Pod", "Service", "Deployment", "ConfigMap", "Ingress"].map(categoryLeaf)
+      },
+      {
+        label: "微服务",
+        value: "microservices",
+        children: ["服务注册", "服务发现", "网关", "配置中心", "分布式事务"].map(categoryLeaf)
+      }
     ]
   },
   {
@@ -109,10 +312,26 @@ const knowledgeCategories = [
     value: "cyber_security",
     description: "覆盖 Web 安全、密码学、协议安全和安全运维的学习大类。",
     children: [
-      { label: "Web安全", value: "web_security", children: ["SQL注入", "XSS", "CSRF", "文件上传漏洞", "权限绕过"].map(categoryLeaf) },
-      { label: "密码学", value: "cryptography", children: ["对称加密", "非对称加密", "哈希算法", "数字签名"].map(categoryLeaf) },
-      { label: "网络协议安全", value: "network_protocol_security", children: ["TCP/IP", "HTTP", "HTTPS", "DNS", "防火墙"].map(categoryLeaf) },
-      { label: "安全运维", value: "security_ops", children: ["日志分析", "入侵检测", "漏洞扫描", "应急响应"].map(categoryLeaf) }
+      {
+        label: "Web安全",
+        value: "web_security",
+        children: ["SQL注入", "XSS", "CSRF", "文件上传漏洞", "权限绕过"].map(categoryLeaf)
+      },
+      {
+        label: "密码学",
+        value: "cryptography",
+        children: ["对称加密", "非对称加密", "哈希算法", "数字签名"].map(categoryLeaf)
+      },
+      {
+        label: "网络协议安全",
+        value: "network_protocol_security",
+        children: ["TCP/IP", "HTTP", "HTTPS", "DNS", "防火墙"].map(categoryLeaf)
+      },
+      {
+        label: "安全运维",
+        value: "security_ops",
+        children: ["日志分析", "入侵检测", "漏洞扫描", "应急响应"].map(categoryLeaf)
+      }
     ]
   },
   {
@@ -120,9 +339,21 @@ const knowledgeCategories = [
     value: "mobile_iot",
     description: "面向移动应用、设备通信、边缘计算和嵌入式开发的学习大类。",
     children: [
-      { label: "移动开发", value: "mobile_development", children: ["Android基础", "Kotlin", "Flutter", "小程序开发", "移动端适配"].map(categoryLeaf) },
-      { label: "物联网", value: "iot", children: ["传感器", "MQTT", "设备通信", "边缘计算", "智能硬件"].map(categoryLeaf) },
-      { label: "嵌入式开发", value: "embedded", children: ["C语言", "单片机", "STM32", "串口通信", "RTOS"].map(categoryLeaf) }
+      {
+        label: "移动开发",
+        value: "mobile_development",
+        children: ["Android基础", "Kotlin", "Flutter", "小程序开发", "移动端适配"].map(categoryLeaf)
+      },
+      {
+        label: "物联网",
+        value: "iot",
+        children: ["传感器", "MQTT", "设备通信", "边缘计算", "智能硬件"].map(categoryLeaf)
+      },
+      {
+        label: "嵌入式开发",
+        value: "embedded",
+        children: ["C语言", "单片机", "STM32", "串口通信", "RTOS"].map(categoryLeaf)
+      }
     ]
   }
 ];
@@ -136,7 +367,18 @@ const graphSubtopicMap = {
   IO流: ["字节流", "字符流", "缓冲流", "文件复制"],
   多线程: ["线程创建", "线程同步", "线程池", "并发安全"],
   JDBC: ["连接数据库", "PreparedStatement", "结果集处理", "事务提交"],
-  "Spring Boot": ["项目结构", "配置文件", "Controller", "Service", "Mapper", "依赖注入", "REST API", "拦截器", "统一异常处理", "项目部署"],
+  "Spring Boot": [
+    "项目结构",
+    "配置文件",
+    "Controller",
+    "Service",
+    "Mapper",
+    "依赖注入",
+    "REST API",
+    "拦截器",
+    "统一异常处理",
+    "项目部署"
+  ],
   "C#基础": ["语法基础", "类型系统", "异常处理"],
   WinForms: ["窗体控件", "事件处理", "数据绑定"],
   "ASP.NET Core": ["路由中间件", "控制器", "依赖注入"],
@@ -172,12 +414,16 @@ function graphSubtopics(label) {
 }
 
 function normalizeCategoryTree(items = []) {
-  return items.map((item) => ({
-    label: item.label || item.name || item.title,
-    value: item.value || item.code || item.label || item.name || item.title,
-    description: item.description,
-    children: Array.isArray(item.children) ? normalizeCategoryTree(item.children) : []
-  })).filter((item) => item.label);
+  return items
+    .map((item) => ({
+      label: item.label || item.name || item.title,
+      value: item.value || item.code || item.label || item.name || item.title,
+      description: item.description,
+      learningStage:
+        item.learningStage || inferLearningStage(item.label || item.name || item.title),
+      children: Array.isArray(item.children) ? normalizeCategoryTree(item.children) : []
+    }))
+    .filter((item) => item.label);
 }
 
 function findCategoryPath(label, tree = knowledgeCategories, prefix = []) {
@@ -204,7 +450,9 @@ function findCategoryByPath(path = [], tree = knowledgeCategories) {
 function flattenCategoryMatches(item, text, path = []) {
   const currentPath = [...path, item.label];
   const ownMatch = item.label.toLowerCase().includes(text);
-  const childMatches = (item.children || []).flatMap((child) => flattenCategoryMatches(child, text, currentPath));
+  const childMatches = (item.children || []).flatMap((child) =>
+    flattenCategoryMatches(child, text, currentPath)
+  );
   if (ownMatch && path.length) {
     return [{ title: item.label, path: currentPath, subjectRef: item.label }, ...childMatches];
   }
@@ -213,29 +461,53 @@ function flattenCategoryMatches(item, text, path = []) {
 
 function catalogFromCategories(tree = knowledgeCategories, keyword = "") {
   const text = keyword.trim().toLowerCase();
-  return tree.map((category) => {
-    const children = category.children || [];
-    const nodes = text
-      ? (category.label.toLowerCase().includes(text)
-          ? children.map((child) => ({ title: child.label, path: [category.label, child.label], subjectRef: child.label }))
-          : flattenCategoryMatches(category, text))
-      : children.map((child) => ({ title: child.label, path: [category.label, child.label], subjectRef: child.label }));
-    return { name: category.label, description: category.description, path: [category.label], nodes };
-  }).filter((item) => !text || item.name.toLowerCase().includes(text) || item.nodes.length);
+  return tree
+    .map((category) => {
+      const children = category.children || [];
+      const nodes = text
+        ? category.label.toLowerCase().includes(text)
+          ? children.map((child) => ({
+              title: child.label,
+              path: [category.label, child.label],
+              subjectRef: child.label
+            }))
+          : flattenCategoryMatches(category, text)
+        : children.map((child) => ({
+            title: child.label,
+            path: [category.label, child.label],
+            subjectRef: child.label
+          }));
+      return {
+        name: category.label,
+        description: category.description,
+        path: [category.label],
+        nodes
+      };
+    })
+    .filter((item) => !text || item.name.toLowerCase().includes(text) || item.nodes.length);
 }
 
 function buildCategoryGraph(path = [], tree = knowledgeCategories) {
   const current = findCategoryByPath(path, tree) || tree[0] || knowledgeCategories[0];
   const resolvedPath = path.length ? path : [current.label];
-  const children = resolvedPath.length >= 3
-    ? graphSubtopics(current.label).map((label) => ({ label, children: [] }))
-    : (current.children || []);
-  const nodes = [{ id: `${current.label}-root`, label: current.label, type: "root", description: current.description }];
+  const children =
+    resolvedPath.length >= 3
+      ? graphSubtopics(current.label).map((label) => ({ label, children: [] }))
+      : current.children || [];
+  const nodes = [
+    {
+      id: `${current.label}-root`,
+      label: current.label,
+      type: "root",
+      description: current.description
+    }
+  ];
   const links = [];
   children.forEach((child, index) => {
     const id = `${current.label}-${index}`;
     const childPath = resolvedPath.length >= 3 ? resolvedPath : [...resolvedPath, child.label];
-    const type = resolvedPath.length === 1 ? "direction" : resolvedPath.length === 2 ? "knowledge" : "point";
+    const type =
+      resolvedPath.length === 1 ? "direction" : resolvedPath.length === 2 ? "knowledge" : "point";
     nodes.push({
       id,
       label: child.label,
@@ -243,36 +515,152 @@ function buildCategoryGraph(path = [], tree = knowledgeCategories) {
       level: resolvedPath.length,
       path: childPath,
       subjectRef: child.label,
-      description: resolvedPath.length >= 3
-        ? `${child.label} 是 ${current.label} 的详细学习点。`
-        : `${child.label} 是 ${current.label} 下的${type === "direction" ? "学习方向" : "知识小类"}。`
+      description:
+        resolvedPath.length >= 3
+          ? `${child.label} 是 ${current.label} 的详细学习点。`
+          : `${child.label} 是 ${current.label} 下的${type === "direction" ? "学习方向" : "知识小类"}。`
     });
     links.push({ source: `${current.label}-root`, target: id, type: "包含" });
   });
-  return { source: resolvedPath.length === 1 ? "category" : resolvedPath.length === 2 ? "direction" : "topic", nodes, links, path: resolvedPath };
+  return {
+    source:
+      resolvedPath.length === 1 ? "category" : resolvedPath.length === 2 ? "direction" : "topic",
+    nodes,
+    links,
+    path: resolvedPath
+  };
 }
 
 const fallbackCatalog = catalogFromCategories(knowledgeCategories);
 
 const seedResources = [
-  { id: 1, title: "Java Spring Boot 接口实战", subject: "Java", type: "video", level: "入门", minutes: 48, teacher: "李老师", favoriteCount: 0 },
-  { id: 2, title: "C# WinForms 小项目训练", subject: "C#", type: "material", level: "入门", minutes: 52, teacher: "王老师", favoriteCount: 0 },
-  { id: 3, title: "Python Pandas 数据清洗", subject: "Python", type: "video", level: "入门", minutes: 55, teacher: "陈老师", favoriteCount: 0 },
-  { id: 4, title: "MySQL 索引与事务优化", subject: "数据库", type: "material", level: "进阶", minutes: 63, teacher: "赵老师", favoriteCount: 0 },
-  { id: 5, title: "React 组件化开发", subject: "前端开发", type: "video", level: "入门", minutes: 44, teacher: "周老师", favoriteCount: 0 },
-  { id: 6, title: "机器学习模型入门", subject: "人工智能", type: "material", level: "进阶", minutes: 80, teacher: "林老师", favoriteCount: 0 },
-  { id: 7, title: "软件测试用例设计", subject: "软件工程", type: "material", level: "入门", minutes: 42, teacher: "孙老师", favoriteCount: 0 },
-  { id: 8, title: "Web 安全漏洞识别", subject: "网络安全", type: "video", level: "进阶", minutes: 68, teacher: "吴老师", favoriteCount: 0 },
-  { id: 9, title: "Android 页面与数据交互", subject: "移动开发", type: "video", level: "入门", minutes: 58, teacher: "郑老师", favoriteCount: 0 },
-  { id: 10, title: "Spark 数据处理实战", subject: "大数据", type: "material", level: "进阶", minutes: 76, teacher: "刘老师", favoriteCount: 0 },
-  { id: 11, title: "Docker 到 Kubernetes 部署", subject: "云计算", type: "video", level: "进阶", minutes: 70, teacher: "黄老师", favoriteCount: 0 },
-  { id: 12, title: "MQTT 物联网通信基础", subject: "物联网", type: "material", level: "入门", minutes: 46, teacher: "高老师", favoriteCount: 0 }
+  {
+    id: 1,
+    title: "Java Spring Boot 接口实战",
+    subject: "Java",
+    type: "video",
+    level: "入门",
+    minutes: 48,
+    teacher: "李老师",
+    favoriteCount: 0
+  },
+  {
+    id: 2,
+    title: "C# WinForms 小项目训练",
+    subject: "C#",
+    type: "material",
+    level: "入门",
+    minutes: 52,
+    teacher: "王老师",
+    favoriteCount: 0
+  },
+  {
+    id: 3,
+    title: "Python Pandas 数据清洗",
+    subject: "Python",
+    type: "video",
+    level: "入门",
+    minutes: 55,
+    teacher: "陈老师",
+    favoriteCount: 0
+  },
+  {
+    id: 4,
+    title: "MySQL 索引与事务优化",
+    subject: "数据库",
+    type: "material",
+    level: "进阶",
+    minutes: 63,
+    teacher: "赵老师",
+    favoriteCount: 0
+  },
+  {
+    id: 5,
+    title: "React 组件化开发",
+    subject: "前端开发",
+    type: "video",
+    level: "入门",
+    minutes: 44,
+    teacher: "周老师",
+    favoriteCount: 0
+  },
+  {
+    id: 6,
+    title: "机器学习模型入门",
+    subject: "人工智能",
+    type: "material",
+    level: "进阶",
+    minutes: 80,
+    teacher: "林老师",
+    favoriteCount: 0
+  },
+  {
+    id: 7,
+    title: "软件测试用例设计",
+    subject: "软件工程",
+    type: "material",
+    level: "入门",
+    minutes: 42,
+    teacher: "孙老师",
+    favoriteCount: 0
+  },
+  {
+    id: 8,
+    title: "Web 安全漏洞识别",
+    subject: "网络安全",
+    type: "video",
+    level: "进阶",
+    minutes: 68,
+    teacher: "吴老师",
+    favoriteCount: 0
+  },
+  {
+    id: 9,
+    title: "Android 页面与数据交互",
+    subject: "移动开发",
+    type: "video",
+    level: "入门",
+    minutes: 58,
+    teacher: "郑老师",
+    favoriteCount: 0
+  },
+  {
+    id: 10,
+    title: "Spark 数据处理实战",
+    subject: "大数据",
+    type: "material",
+    level: "进阶",
+    minutes: 76,
+    teacher: "刘老师",
+    favoriteCount: 0
+  },
+  {
+    id: 11,
+    title: "Docker 到 Kubernetes 部署",
+    subject: "云计算",
+    type: "video",
+    level: "进阶",
+    minutes: 70,
+    teacher: "黄老师",
+    favoriteCount: 0
+  },
+  {
+    id: 12,
+    title: "MQTT 物联网通信基础",
+    subject: "物联网",
+    type: "material",
+    level: "入门",
+    minutes: 46,
+    teacher: "高老师",
+    favoriteCount: 0
+  }
 ];
 
 function buildResourceTextContent(item) {
   const title = item?.title || "课程资源";
   const subject = item?.subject || "通用学习";
-  const description = item?.description || "本节课程用于建立基础理解，并通过练习把知识转化为可操作能力";
+  const description =
+    item?.description || "本节课程用于建立基础理解，并通过练习把知识转化为可操作能力";
   return `【文本学习】${title}。${description}。本节课程适合在观看视频或下载资料之前先进行文字预习。学习时先明确课程目标：理解${subject}方向中的核心概念、常见术语、典型场景和基本工作流程；再把知识放到一个可执行的小任务中验证。阅读过程中请准备笔记，记录三个问题：这个知识点解决什么问题，它依赖哪些前置知识，实际项目中容易在哪一步出错。
 
 第一阶段关注概念。不要急着记忆大量细节，先用自己的话解释课程标题中的关键词，并把它和已经学过的知识建立联系。如果遇到陌生名词，可以先写下猜测，再通过示例代码、流程图或操作截图验证。第二阶段关注流程。把课程内容拆成输入、处理、输出三个部分，说明每一步产生什么结果，为什么需要这样设计。第三阶段关注实践。选择一个最小练习，例如完成一个接口、编写一个查询、实现一个组件、整理一组数据或搭建一个简单环境。练习完成后要回看错误信息和调试过程，因为这些细节往往比最终结果更能反映掌握程度。
@@ -283,11 +671,13 @@ function buildResourceTextContent(item) {
 const pagePaths = {
   auth: "/login",
   home: "/home",
+  planning: "/planning",
   catalog: "/catalog",
   graph: "/graph",
   learning: "/learning",
   agents: "/agents",
   messages: "/messages",
+  chat: "/chat",
   teacher: "/teacher",
   admin: "/admin",
   interests: "/interests",
@@ -295,7 +685,18 @@ const pagePaths = {
   learn: "/learn"
 };
 
-const learnerPages = new Set(["home", "catalog", "graph", "learning", "agents", "messages", "course", "learn"]);
+const learnerPages = new Set([
+  "home",
+  "planning",
+  "catalog",
+  "graph",
+  "learning",
+  "agents",
+  "messages",
+  "chat",
+  "course",
+  "learn"
+]);
 const teacherPages = new Set([...learnerPages, "teacher"]);
 
 function pageFromPath(pathname) {
@@ -320,9 +721,9 @@ function lessonIdFromPath(pathname) {
 function defaultPageForUser(savedUser, setupPending, routePage = "") {
   if (!savedUser) return "auth";
   if (!localStorage.getItem("learning_token")) return "auth";
-    if (savedUser.role === "admin") return routePage === "course" ? "course" : "admin";
+  if (savedUser.role === "admin") return routePage === "course" ? "course" : "admin";
   if (savedUser.role === "teacher") return teacherPages.has(routePage) ? routePage : "home";
-  if (setupPending) return "interests";
+  if (setupPending) return "planning";
   return learnerPages.has(routePage) ? routePage : "home";
 }
 
@@ -340,7 +741,9 @@ function readStoredJson(key, fallbackValue) {
 
 function readStoredUser() {
   const storedUser = readStoredJson("learning_user", null);
-  return storedUser && typeof storedUser === "object" && !Array.isArray(storedUser) ? storedUser : null;
+  return storedUser && typeof storedUser === "object" && !Array.isArray(storedUser)
+    ? storedUser
+    : null;
 }
 
 function readStoredPreferences() {
@@ -362,14 +765,31 @@ function App() {
   const [platformCategories, setPlatformCategories] = useState([]);
   const [catalogSubjects, setCatalogSubjects] = useState(fallbackCatalog);
   const [selectedSubject, setSelectedSubject] = useState(preferences[0] || "软件工程");
-  const [selectedCourseId, setSelectedCourseId] = useState(() => courseIdFromPath(window.location.pathname));
-  const [selectedLessonId, setSelectedLessonId] = useState(() => lessonIdFromPath(window.location.pathname));
-  const [graphSelection, setGraphSelection] = useState(() => ({ view: new URLSearchParams(window.location.search).get("view") || "path", pathId: new URLSearchParams(window.location.search).get("pathId") }));
-  const [needsInterestSetup, setNeedsInterestSetup] = useState(() => localStorage.getItem("learning_needs_interest_setup") === "1");
+  const [selectedCourseId, setSelectedCourseId] = useState(() =>
+    courseIdFromPath(window.location.pathname)
+  );
+  const [selectedLessonId, setSelectedLessonId] = useState(() =>
+    lessonIdFromPath(window.location.pathname)
+  );
+  const [graphSelection, setGraphSelection] = useState(() => ({
+    view: new URLSearchParams(window.location.search).get("view") || "path",
+    pathId: new URLSearchParams(window.location.search).get("pathId")
+  }));
+  const [needsInterestSetup, setNeedsInterestSetup] = useState(
+    () => localStorage.getItem("learning_needs_interest_setup") === "1"
+  );
   const [authNotice, setAuthNotice] = useState("");
+  const [planningChecked, setPlanningChecked] = useState(
+    () => readStoredUser()?.role !== "student"
+  );
   const currentPathRef = useRef(window.location.pathname);
   const scrollPositionsRef = useRef(new Map());
   const scrollRestoreTokenRef = useRef(0);
+  const appShellRef = useRef(null);
+  usePageMotion(
+    appShellRef,
+    `${page}:${["course", "learn"].includes(page) ? selectedCourseId : ""}:${planningChecked}`
+  );
 
   const scheduleScrollRestore = (top, retryAfterContentLoad = false) => {
     const token = scrollRestoreTokenRef.current + 1;
@@ -391,23 +811,36 @@ function App() {
   const updateBrowserHistory = (nextPage, options = {}) => {
     const courseId = Number(options.courseId || selectedCourseId || 0) || null;
     const lessonId = Number(options.lessonId || selectedLessonId || 0) || null;
-    let path = nextPage === "course" && courseId
-      ? `/course/${courseId}`
-      : nextPage === "learn" && courseId && lessonId
-        ? `/learn/${courseId}/${lessonId}`
-        : pagePaths[nextPage] || "/home";
+    let path =
+      nextPage === "course" && courseId
+        ? `/course/${courseId}`
+        : nextPage === "learn" && courseId && lessonId
+          ? `/learn/${courseId}/${lessonId}`
+          : pagePaths[nextPage] || "/home";
     if (nextPage === "graph") {
       const selection = options.graphSelection || graphSelection;
       const query = new URLSearchParams({ view: selection.view });
       if (selection.pathId) query.set("pathId", selection.pathId);
       path += `?${query}`;
     }
-    const state = { page: nextPage, ...(courseId ? { courseId } : {}), ...(lessonId ? { lessonId } : {}) };
+    if (nextPage === "catalog" && options.learningStage) {
+      const query = new URLSearchParams({ stage: options.learningStage });
+      if (options.subject) query.set("subject", options.subject);
+      path += `?${query}`;
+    }
+    const state = {
+      page: nextPage,
+      ...(courseId ? { courseId } : {}),
+      ...(lessonId ? { lessonId } : {})
+    };
     if (options.replace) {
       window.history.replaceState(state, "", path);
       return path;
     }
-    if (window.location.pathname + window.location.search !== path || window.history.state?.page !== nextPage) {
+    if (
+      window.location.pathname + window.location.search !== path ||
+      window.history.state?.page !== nextPage
+    ) {
       window.history.pushState(state, "", path);
     }
     return path;
@@ -416,64 +849,52 @@ function App() {
   const navigatePage = (nextPage, options = {}) => {
     const resolved = typeof nextPage === "function" ? nextPage(page) : nextPage;
     const nextCourseId = Number(options.courseId || selectedCourseId || 0) || null;
-    const changingLessonInSameCourse = page === "learn"
-      && resolved === "learn"
-      && Number(nextCourseId) === Number(selectedCourseId);
+    const changingLessonInSameCourse =
+      page === "learn" && resolved === "learn" && Number(nextCourseId) === Number(selectedCourseId);
 
     scrollPositionsRef.current.set(currentPathRef.current, window.scrollY);
     const nextGraphSelection = { view: options.view || "path", pathId: options.pathId || null };
-    const nextPath = updateBrowserHistory(resolved, { ...options, ...(resolved === "graph" ? { graphSelection: nextGraphSelection } : {}) });
+    const nextPath = updateBrowserHistory(resolved, {
+      ...options,
+      ...(resolved === "graph" ? { graphSelection: nextGraphSelection } : {})
+    });
     currentPathRef.current = nextPath;
 
-    const commitRoute = () => {
-      if (["course", "learn"].includes(resolved) && options.courseId) setSelectedCourseId(Number(options.courseId));
-      if (resolved === "learn" && options.lessonId) setSelectedLessonId(Number(options.lessonId));
-      if (resolved === "graph") setGraphSelection(nextGraphSelection);
-      setPageState(resolved);
-    };
-    const canTransition = typeof document.startViewTransition === "function"
-      && !options.replace
-      && !changingLessonInSameCourse;
-
-    if (canTransition) {
-      const transition = document.startViewTransition(() => flushSync(commitRoute));
-      if (!changingLessonInSameCourse) {
-        transition.updateCallbackDone.then(() => scheduleScrollRestore(0), () => scheduleScrollRestore(0));
-      }
-    } else {
-      commitRoute();
-      if (!changingLessonInSameCourse) scheduleScrollRestore(0);
-    }
+    // Route content must update even when browser transition callbacks are unavailable or stalled.
+    if (["course", "learn"].includes(resolved) && options.courseId)
+      setSelectedCourseId(Number(options.courseId));
+    if (resolved === "learn" && options.lessonId) setSelectedLessonId(Number(options.lessonId));
+    if (resolved === "graph") setGraphSelection(nextGraphSelection);
+    setPageState(resolved);
+    if (!changingLessonInSameCourse) scheduleScrollRestore(0);
   };
 
   useEffect(() => {
     const previousScrollRestoration = window.history.scrollRestoration;
     window.history.scrollRestoration = "manual";
-    currentPathRef.current = updateBrowserHistory(page, { replace: true, courseId: selectedCourseId, lessonId: selectedLessonId });
+    currentPathRef.current = updateBrowserHistory(page, {
+      replace: true,
+      courseId: selectedCourseId,
+      lessonId: selectedLessonId
+    });
     const onPopState = (event) => {
       scrollPositionsRef.current.set(currentPathRef.current, window.scrollY);
       const routePage = event.state?.page || pageFromPath(window.location.pathname);
-      const routeCourseId = Number(event.state?.courseId || courseIdFromPath(window.location.pathname) || 0) || null;
-      const routeLessonId = Number(event.state?.lessonId || lessonIdFromPath(window.location.pathname) || 0) || null;
+      const routeCourseId =
+        Number(event.state?.courseId || courseIdFromPath(window.location.pathname) || 0) || null;
+      const routeLessonId =
+        Number(event.state?.lessonId || lessonIdFromPath(window.location.pathname) || 0) || null;
       const targetPath = window.location.pathname;
-      const commitRoute = () => {
-        if (routeCourseId) setSelectedCourseId(routeCourseId);
-        if (routeLessonId) setSelectedLessonId(routeLessonId);
-        if (routePage === "graph") setGraphSelection({ view: new URLSearchParams(window.location.search).get("view") || "path", pathId: new URLSearchParams(window.location.search).get("pathId") });
-        setPageState(defaultPageForUser(user, needsInterestSetup, routePage));
-      };
       currentPathRef.current = targetPath;
-      if (typeof document.startViewTransition === "function") {
-        const transition = document.startViewTransition(() => flushSync(commitRoute));
-        const savedTop = scrollPositionsRef.current.get(targetPath) || 0;
-        transition.updateCallbackDone.then(
-          () => scheduleScrollRestore(savedTop, true),
-          () => scheduleScrollRestore(savedTop, true)
-        );
-      } else {
-        commitRoute();
-        scheduleScrollRestore(scrollPositionsRef.current.get(targetPath) || 0, true);
-      }
+      if (routeCourseId) setSelectedCourseId(routeCourseId);
+      if (routeLessonId) setSelectedLessonId(routeLessonId);
+      if (routePage === "graph")
+        setGraphSelection({
+          view: new URLSearchParams(window.location.search).get("view") || "path",
+          pathId: new URLSearchParams(window.location.search).get("pathId")
+        });
+      setPageState(defaultPageForUser(user, needsInterestSetup, routePage));
+      scheduleScrollRestore(scrollPositionsRef.current.get(targetPath) || 0, true);
     };
     window.addEventListener("popstate", onPopState);
     return () => {
@@ -484,7 +905,9 @@ function App() {
 
   useEffect(() => {
     const onUnauthorized = () => {
-      const hadSession = Boolean(localStorage.getItem("learning_token") || localStorage.getItem("learning_user"));
+      const hadSession = Boolean(
+        localStorage.getItem("learning_token") || localStorage.getItem("learning_user")
+      );
       clearAuthStorage();
       setUser(null);
       setPreferences([]);
@@ -498,41 +921,86 @@ function App() {
   }, []);
 
   useEffect(() => {
-    getKnowledgeCategoryTree().then((data) => {
-      const tree = normalizeCategoryTree(Array.isArray(data.categories) ? data.categories : []);
-      const resolvedTree = tree.length ? tree : knowledgeCategories;
-      const items = catalogFromCategories(resolvedTree);
-      setCategoryTree(resolvedTree);
-      setCatalogSubjects(items);
-      setSelectedSubject((current) => findCategoryPath(current, resolvedTree) ? current : items[0]?.name || "软件工程");
-    }).catch(() => setCatalogSubjects(fallbackCatalog));
+    getKnowledgeCategoryTree()
+      .then((data) => {
+        const tree = normalizeCategoryTree(Array.isArray(data.categories) ? data.categories : []);
+        const resolvedTree = tree.length ? tree : knowledgeCategories;
+        const items = catalogFromCategories(resolvedTree);
+        setCategoryTree(resolvedTree);
+        setCatalogSubjects(items);
+        setSelectedSubject((current) =>
+          findCategoryPath(current, resolvedTree) ? current : items[0]?.name || "软件工程"
+        );
+      })
+      .catch(() => setCatalogSubjects(fallbackCatalog));
   }, []);
 
   useEffect(() => {
-    getCategories().then((data) => setPlatformCategories(Array.isArray(data) ? data : [])).catch(() => setPlatformCategories([]));
+    getCategories()
+      .then((data) => setPlatformCategories(Array.isArray(data) ? data : []))
+      .catch(() => setPlatformCategories([]));
   }, []);
 
   useEffect(() => {
     if (!user || !["student", "teacher"].includes(user.role)) return;
     if (needsInterestSetup) return;
-    api("/preferences").then((data) => {
-      const items = Array.isArray(data.subjects) ? data.subjects : [];
-      localStorage.setItem("learning_preferences", JSON.stringify(items));
-      setPreferences(items);
-      setSelectedSubject(items[0] || "软件工程");
-      setPageState((current) => current === "auth" ? "home" : current);
-    }).catch(() => {
-      localStorage.removeItem("learning_preferences");
-      setPreferences([]);
-      setPageState((current) => current === "auth" ? "home" : current);
-    });
-  }, [user?.id, needsInterestSetup]);
+    const token = localStorage.getItem("learning_token");
+    let active = true;
+    const isCurrentSession = () =>
+      active && token && localStorage.getItem("learning_token") === token;
+    api("/preferences")
+      .then((data) => {
+        if (!isCurrentSession()) return;
+        const items = Array.isArray(data.subjects) ? data.subjects : [];
+        localStorage.setItem("learning_preferences", JSON.stringify(items));
+        setPreferences(items);
+        setSelectedSubject(items[0] || "软件工程");
+      })
+      .catch(() => {
+        if (!isCurrentSession()) return;
+        localStorage.removeItem("learning_preferences");
+        setPreferences([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [user?.id, user?.role, needsInterestSetup]);
 
-  const loginDone = async (nextUser, token, authMode, needsInterestSelection) => {
+  useEffect(() => {
+    if (user?.role !== "student") {
+      setPlanningChecked(true);
+      return;
+    }
+    let active = true;
+    const token = localStorage.getItem("learning_token");
+    setPlanningChecked(false);
+    getLearningProfile()
+      .then((profile) => {
+        if (!active || localStorage.getItem("learning_token") !== token) return;
+        if (
+          profile.needsPlanning === true &&
+          ["", "home", "auth", "interests"].includes(pageFromPath(window.location.pathname))
+        ) {
+          navigatePage("planning", { replace: true });
+        }
+      })
+      .catch(() => {
+        /* A temporary profile failure must not trap the user before home. */
+      })
+      .finally(() => {
+        if (active && localStorage.getItem("learning_token") === token) setPlanningChecked(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [user?.id, user?.role]);
+
+  const loginDone = (nextUser, token, authMode, needsInterestSelection, demoRole = "") => {
     setAuthNotice("");
     localStorage.setItem("learning_user", JSON.stringify(nextUser));
     if (token) localStorage.setItem("learning_token", token);
     setUser(nextUser);
+    setPlanningChecked(nextUser.role !== "student");
     if (nextUser.role === "admin") {
       setNeedsInterestSetup(false);
       localStorage.removeItem("learning_needs_interest_setup");
@@ -542,7 +1010,7 @@ function App() {
     if (nextUser.role === "teacher") {
       setNeedsInterestSetup(false);
       localStorage.removeItem("learning_needs_interest_setup");
-      navigatePage("home", { replace: true });
+      navigatePage(demoRole === "teacher" ? "teacher" : "home", { replace: true });
       return;
     }
     if (authMode === "register" || needsInterestSelection) {
@@ -551,23 +1019,12 @@ function App() {
       localStorage.removeItem("learning_preferences");
       setPreferences([]);
       setSelectedSubject("软件工程");
-      navigatePage("interests", { replace: true });
+      navigatePage("planning", { replace: true });
       return;
     }
     setNeedsInterestSetup(false);
     localStorage.removeItem("learning_needs_interest_setup");
-    try {
-      const data = await api("/preferences");
-      const items = Array.isArray(data.subjects) ? data.subjects : [];
-      localStorage.setItem("learning_preferences", JSON.stringify(items));
-      setPreferences(items);
-      setSelectedSubject(items[0] || "软件工程");
-      navigatePage("home", { replace: true });
-    } catch {
-      localStorage.removeItem("learning_preferences");
-      setPreferences([]);
-      navigatePage("home", { replace: true });
-    }
+    navigatePage("home", { replace: true });
   };
 
   const logout = () => {
@@ -578,31 +1035,60 @@ function App() {
     navigatePage("auth", { replace: true });
   };
 
+  if (
+    user?.role === "student" &&
+    !planningChecked &&
+    ["home", "auth", "interests"].includes(page)
+  ) {
+    return (
+      <main className="planning-loading" role="status">
+        <GraduationCap size={30} />
+        <p>正在准备你的学习空间…</p>
+      </main>
+    );
+  }
+
   return (
-    <div className="app-shell">
-      {user && page !== "interests" && <HeaderNav user={user} page={page} onNavigate={navigatePage} onLogout={logout} />}
+    <div className="app-shell" ref={appShellRef} data-page={page}>
+      {user && !["interests", "planning"].includes(page) && (
+        <HeaderNav
+          user={user}
+          page={page}
+          onNavigate={navigatePage}
+          onLogout={logout}
+          onUserChange={(updates) => {
+            setUser((current) => {
+              if (!current || Number(current.id) !== Number(updates.id)) return current;
+              const next = { ...current, ...updates };
+              localStorage.setItem("learning_user", JSON.stringify(next));
+              return next;
+            });
+          }}
+        />
+      )}
       {page === "auth" && <AuthPage onDone={loginDone} notice={authNotice} />}
-      {page === "interests" && (
-        <InterestSetupPage
-          selected={preferences}
-          catalogSubjects={catalogSubjects}
-          logout={logout}
-          onSave={(items) => {
-            localStorage.setItem("learning_preferences", JSON.stringify(items));
-            setPreferences(items);
-            setSelectedSubject(items[0] || "软件工程");
-            api("/preferences", { method: "POST", body: JSON.stringify({ subjects: items }) })
-              .then(() => {
-                setNeedsInterestSetup(false);
-                localStorage.removeItem("learning_needs_interest_setup");
-                navigatePage("home", { replace: true });
-              })
-              .catch((error) => handleActionError(error, "兴趣保存失败"));
+      {user && ["planning", "interests"].includes(page) && (
+        <LearningPlanningPage
+          key={user.id}
+          user={user}
+          categoryTree={categoryTree}
+          onLogout={logout}
+          onFinish={({ answers, deferred }) => {
+            if (!deferred && answers.subject) {
+              setPreferences([answers.subject]);
+              setSelectedSubject(answers.subject);
+              localStorage.setItem("learning_preferences", JSON.stringify([answers.subject]));
+            }
+            setNeedsInterestSetup(false);
+            setPlanningChecked(true);
+            localStorage.removeItem("learning_needs_interest_setup");
+            navigatePage("home", { replace: true });
           }}
         />
       )}
       {page === "home" && (
         <StudentHome
+          user={user}
           resources={resources}
           setResources={setResources}
           resourceMeta={resourceMeta}
@@ -617,6 +1103,7 @@ function App() {
       )}
       {page === "catalog" && (
         <StudentHome
+          user={user}
           resources={resources}
           setResources={setResources}
           resourceMeta={resourceMeta}
@@ -631,13 +1118,13 @@ function App() {
       )}
       {page === "graph" && (
         <LearningPathGraph key={user?.id} selection={graphSelection} setPage={navigatePage}>
-        <KnowledgeGraph
-          subject={selectedSubject}
-          categoryTree={categoryTree}
-          resources={resources}
-          setSelectedSubject={setSelectedSubject}
-          setPage={navigatePage}
-        />
+          <KnowledgeGraph
+            subject={selectedSubject}
+            categoryTree={categoryTree}
+            resources={resources}
+            setSelectedSubject={setSelectedSubject}
+            setPage={navigatePage}
+          />
         </LearningPathGraph>
       )}
       {page === "course" && (
@@ -657,11 +1144,27 @@ function App() {
           setPage={navigatePage}
         />
       )}
-      {page === "learning" && <MyLearningPage setPage={navigatePage} setSelectedSubject={setSelectedSubject} />}
-      {page === "agents" && <AgentsPage preferences={preferences} setPage={navigatePage} />}
+      {page === "learning" && (
+        <MyLearningPage setPage={navigatePage} setSelectedSubject={setSelectedSubject} />
+      )}
+      {page === "agents" && (
+        <AgentsPage user={user} preferences={preferences} setPage={navigatePage} />
+      )}
       {page === "messages" && <MessagesPage user={user} setPage={navigatePage} />}
-      {page === "teacher" && <TeacherDashboard resources={resources} setResources={setResources} setResourceMeta={setResourceMeta} />}
+      {page === "teacher" && (
+        <TeacherDashboard
+          resources={resources}
+          setResources={setResources}
+          setResourceMeta={setResourceMeta}
+          categoryTree={categoryTree}
+        />
+      )}
       {page === "admin" && <AdminDashboard setPage={navigatePage} />}
+      {user && ["student", "teacher"].includes(user.role) && (
+        <div key="agent-chat-host" hidden={page !== "chat"}>
+          <AgentChatPage key={user.id} user={user} active={page === "chat"} />
+        </div>
+      )}
     </div>
   );
 }
@@ -669,31 +1172,79 @@ function App() {
 function AuthPage({ onDone, notice }) {
   const [mode, setMode] = useState("login");
   const [role, setRole] = useState("student");
-  const [form, setForm] = useState({ name: "", email: "", password: "", teacherRegistrationCode: "" });
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    password: "",
+    teacherRegistrationCode: ""
+  });
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [demoAccounts, setDemoAccounts] = useState([]);
+  const [demoRole, setDemoRole] = useState("");
+  const authRequest = useRef(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    api("/auth/demo-accounts", { signal: controller.signal })
+      .then(data => {
+        if (!controller.signal.aborted && data?.enabled) setDemoAccounts(data.accounts || []);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
+
+  const finishLogin = async (payload, loginMode, demo = false) => {
+    const data = await api(loginMode === "login" ? "/auth/login" : "/auth/register", {
+      method: "POST", body: JSON.stringify(payload)
+    });
+    await onDone(data.user, data.token, loginMode, data.needsInterestSelection, demo ? data.user.role : "");
+  };
+
+  const enterDemo = async (selectedRole) => {
+    if (authRequest.current) return;
+    authRequest.current = true;
+    setError("");
+    setSubmitting(true);
+    setDemoRole(selectedRole);
+    try {
+      const credentials = await api(`/auth/demo-accounts/${selectedRole}`, { method: "POST" });
+      setMode("login");
+      setForm(current => ({ ...current, email: credentials.email, password: credentials.password, teacherRegistrationCode: "" }));
+      await finishLogin({ email: credentials.email, password: credentials.password }, "login", true);
+    } catch (err) {
+      setError(err?.message || "演示登录失败，请稍后重试。");
+    } finally {
+      authRequest.current = false;
+      setSubmitting(false);
+      setDemoRole("");
+    }
+  };
 
   const submit = async (event) => {
     event.preventDefault();
-    if (submitting) return;
+    if (authRequest.current) return;
+    authRequest.current = true;
     setError("");
     setSubmitting(true);
     try {
-      const path = mode === "login" ? "/auth/login" : "/auth/register";
-      const payload = mode === "login"
-        ? { email: form.email, password: form.password }
-        : {
-            name: form.name,
-            email: form.email,
-            password: form.password,
-            role,
-            ...(role === "teacher" ? { teacherRegistrationCode: form.teacherRegistrationCode.trim() } : {})
-          };
-      const data = await api(path, { method: "POST", body: JSON.stringify(payload) });
-      await onDone(data.user, data.token, mode, data.needsInterestSelection);
+      const payload =
+        mode === "login"
+          ? { email: form.email, password: form.password }
+          : {
+              name: form.name,
+              email: form.email,
+              password: form.password,
+              role,
+              ...(role === "teacher"
+                ? { teacherRegistrationCode: form.teacherRegistrationCode.trim() }
+                : {})
+            };
+      await finishLogin(payload, mode);
     } catch (err) {
       setError(err?.message || "登录请求失败，请稍后重试");
     } finally {
+      authRequest.current = false;
       setSubmitting(false);
     }
   };
@@ -703,38 +1254,129 @@ function AuthPage({ onDone, notice }) {
       <section className="auth-hero">
         <div className="hero-copy">
           <span className="eyebrow">ZHI DU LEARNING</span>
-          <h1>让每一次学习<br />都有清晰的方向</h1>
+          <h1>
+            让每一次学习
+            <br />
+            都有清晰的方向
+          </h1>
           <p>从课程体系到知识图谱，把分散的内容整理成一条看得见、走得通的学习路径。</p>
           <div className="auth-proof" aria-label="平台能力">
-            <span><b>6</b> 大学习领域</span>
-            <span><b>100+</b> 知识节点</span>
-            <span><b>持续</b> 记录进度</span>
+            <span>
+              <b>6</b> 大学习领域
+            </span>
+            <span>
+              <b>100+</b> 知识节点
+            </span>
+            <span>
+              <b>持续</b> 记录进度
+            </span>
           </div>
         </div>
       </section>
       <section className="auth-panel">
         <div className="auth-panel-head">
-          <span className="brand-mark"><GraduationCap size={22} /></span>
+          <span className="brand-mark">
+            <GraduationCap size={22} />
+          </span>
           <div>
             <span className="eyebrow">欢迎回来</span>
             <h2>{mode === "login" ? "登录学习空间" : "创建你的学习空间"}</h2>
             <p>{mode === "login" ? "继续上次的学习进度。" : "只需一分钟，即可开始规划课程。"}</p>
           </div>
         </div>
+        {mode === "login" && demoAccounts.length > 0 && <section className="demo-login" aria-label="演示账号登录">
+          <h3>选择身份，快速体验</h3>
+          <div className="demo-login-options">
+            {demoAccounts.map(account => {
+              const Icon = account.role === "student" ? GraduationCap : account.role === "teacher" ? BookOpen : ShieldCheck;
+              return <button type="button" key={account.role} disabled={submitting} onClick={() => enterDemo(account.role)} aria-label={account.label}>
+                <Icon size={18} aria-hidden="true" />
+                <strong>{submitting && demoRole === account.role ? "登录中…" : account.label}</strong>
+                <small>{account.role === "student" ? "学习与练习" : account.role === "teacher" ? "课程工作台" : "管理控制台"}</small>
+              </button>;
+            })}
+          </div>
+          <p aria-live="polite">{demoRole ? "正在自动填写并登录演示账号…" : "点击后自动填写账号和密码，并直接登录。"}</p>
+        </section>}
         <div className="segmented">
-          <button disabled={submitting} className={mode === "login" ? "active" : ""} onClick={() => { setMode("login"); setError(""); }}>登录</button>
-          <button disabled={submitting} className={mode === "register" ? "active" : ""} onClick={() => { setMode("register"); setError(""); }}>注册</button>
+          <button
+            disabled={submitting}
+            className={mode === "login" ? "active" : ""}
+            onClick={() => {
+              setMode("login");
+              setError("");
+            }}
+          >
+            登录
+          </button>
+          <button
+            disabled={submitting}
+            className={mode === "register" ? "active" : ""}
+            onClick={() => {
+              setMode("register");
+              setError("");
+            }}
+          >
+            注册
+          </button>
         </div>
         <form onSubmit={submit}>
-          {mode === "register" && <label className="field-label"><span>姓名</span><input placeholder="请输入姓名" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></label>}
-          <label className="field-label"><span>邮箱</span><input type="email" placeholder="name@example.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required /></label>
-          <label className="field-label"><span>密码</span><input type="password" placeholder="请输入密码" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required /></label>
+          {mode === "register" && (
+            <label className="field-label">
+              <span>姓名</span>
+              <input
+                placeholder="请输入姓名"
+                value={form.name}
+                disabled={submitting}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                required
+              />
+            </label>
+          )}
+          <label className="field-label">
+            <span>邮箱</span>
+            <input
+              type="email"
+              placeholder="name@example.com"
+              value={form.email}
+              autoComplete="username"
+              disabled={submitting}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              required
+            />
+          </label>
+          <label className="field-label">
+            <span>密码</span>
+            <input
+              type="password"
+              placeholder="请输入密码"
+              value={form.password}
+              autoComplete={mode === "login" ? "current-password" : "new-password"}
+              disabled={submitting}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+              required
+            />
+          </label>
           {mode === "register" && (
             <div className="role-field">
               <span>使用身份</span>
               <div className="role-picker">
-                <button type="button" disabled={submitting} className={role === "student" ? "active" : ""} onClick={() => setRole("student")}>学生</button>
-                <button type="button" disabled={submitting} className={role === "teacher" ? "active" : ""} onClick={() => setRole("teacher")}>教师</button>
+                <button
+                  type="button"
+                  disabled={submitting}
+                  className={role === "student" ? "active" : ""}
+                  onClick={() => setRole("student")}
+                >
+                  学生
+                </button>
+                <button
+                  type="button"
+                  disabled={submitting}
+                  className={role === "teacher" ? "active" : ""}
+                  onClick={() => setRole("teacher")}
+                >
+                  教师
+                </button>
               </div>
             </div>
           )}
@@ -744,14 +1386,21 @@ function AuthPage({ onDone, notice }) {
               <input
                 type="password"
                 autoComplete="off"
+                disabled={submitting}
                 placeholder="请输入教师注册码"
                 value={form.teacherRegistrationCode}
-                onChange={(event) => setForm({ ...form, teacherRegistrationCode: event.target.value })}
+                onChange={(event) =>
+                  setForm({ ...form, teacherRegistrationCode: event.target.value })
+                }
                 required
               />
             </label>
           )}
-          {(error || notice) && <p className="error" role="alert">{error || notice}</p>}
+          {(error || notice) && (
+            <p className="error" role="alert">
+              {error || notice}
+            </p>
+          )}
           <button className="primary-btn" type="submit" disabled={submitting}>
             {submitting ? "正在提交..." : mode === "login" ? "登录系统" : "创建账号"}
             <ArrowRight size={18} />
@@ -763,12 +1412,15 @@ function AuthPage({ onDone, notice }) {
 }
 
 function InterestSetupPage({ selected, catalogSubjects, onSave, logout }) {
-  const [items, setItems] = useState(() => [...new Set(Array.isArray(selected) ? selected : [])].slice(0, 3));
+  const [items, setItems] = useState(() =>
+    [...new Set(Array.isArray(selected) ? selected : [])].slice(0, 3)
+  );
   const catalog = catalogSubjects.length ? catalogSubjects : fallbackCatalog;
-  const toggle = (subject) => setItems((prev) => {
-    if (prev.includes(subject)) return prev.filter((item) => item !== subject);
-    return prev.length >= 3 ? prev : [...prev, subject];
-  });
+  const toggle = (subject) =>
+    setItems((prev) => {
+      if (prev.includes(subject)) return prev.filter((item) => item !== subject);
+      return prev.length >= 3 ? prev : [...prev, subject];
+    });
   return (
     <main className="preference-page-react">
       <div className="preference-top-react">
@@ -777,26 +1429,65 @@ function InterestSetupPage({ selected, catalogSubjects, onSave, logout }) {
           <h2>选择你感兴趣的学习方向</h2>
           <p>选择一到三个学习方向，首页会优先整理相关课程与知识节点。之后也可以随时调整。</p>
         </div>
-        <button className="preference-logout-react" onClick={logout}>退出登录</button>
+        <button className="preference-logout-react" onClick={logout}>
+          退出登录
+        </button>
       </div>
       <div className="subject-grid">
         {catalog.map((subject) => (
-          <button className={items.includes(subject.name) ? "subject-card active" : "subject-card"} key={subject.name} onClick={() => toggle(subject.name)}>
+          <button
+            className={items.includes(subject.name) ? "subject-card active" : "subject-card"}
+            key={subject.name}
+            onClick={() => toggle(subject.name)}
+          >
             <CheckCircle2 size={22} />
             <strong>{subject.name}</strong>
-            <span>{(subject.nodes || []).slice(0, 3).map((node) => node.title).join(" / ")}</span>
+            <span>
+              {(subject.nodes || [])
+                .slice(0, 3)
+                .map((node) => node.title)
+                .join(" / ")}
+            </span>
           </button>
         ))}
       </div>
-      <button className="primary-btn floating-save-react" disabled={!items.length} onClick={() => onSave(items)}>保存选择，进入学习空间</button>
+      <button
+        className="primary-btn floating-save-react"
+        disabled={!items.length}
+        onClick={() => onSave(items)}
+      >
+        保存选择，进入学习空间
+      </button>
     </main>
   );
 }
 
-function StudentHome({ resources, setResources, resourceMeta, setResourceMeta, preferences, catalogSubjects, categoryTree, platformCategories, setPage, setSelectedSubject }) {
-  const [query, setQuery] = useState("");
+function StudentHome({
+  user,
+  resources,
+  setResources,
+  resourceMeta,
+  setResourceMeta,
+  preferences,
+  catalogSubjects,
+  categoryTree,
+  platformCategories,
+  setPage,
+  setSelectedSubject
+}) {
+  const [learningStage, setLearningStage] = useState(
+    () => new URLSearchParams(window.location.search).get("stage") || ""
+  );
+  const [query, setQuery] = useState(
+    () => new URLSearchParams(window.location.search).get("subject") || ""
+  );
   const [filters, setFilters] = useState({ categoryId: "", directionId: "", type: "" });
-  const [confirmedSelection, setConfirmedSelection] = useState({ query: "", categoryId: "", directionId: "", type: "" });
+  const [confirmedSelection, setConfirmedSelection] = useState(() => ({
+    query: new URLSearchParams(window.location.search).get("subject") || "",
+    categoryId: "",
+    directionId: "",
+    type: ""
+  }));
   const [filterPath, setFilterPath] = useState([]);
   const [loadingResources, setLoadingResources] = useState(false);
   const [resourceError, setResourceError] = useState("");
@@ -810,9 +1501,13 @@ function StudentHome({ resources, setResources, resourceMeta, setResourceMeta, p
     const stats = (platformCategories || []).find((category) => category.name === item.name) || {};
     return { ...item, ...stats, name: item.name, nodes: item.nodes };
   });
-  const matchedSuggestionGroups = normalizedQuery ? visibleCatalog.map((item) => ({ ...item, nodes: (item.nodes || []).slice(0, 8) })).filter((item) => item.nodes.length) : [];
+  const matchedSuggestionGroups = normalizedQuery
+    ? visibleCatalog
+        .map((item) => ({ ...item, nodes: (item.nodes || []).slice(0, 8) }))
+        .filter((item) => item.nodes.length)
+    : [];
   const updateResource = (id, updates) => {
-    setResources((items) => items.map((item) => item.id === id ? { ...item, ...updates } : item));
+    setResources((items) => items.map((item) => (item.id === id ? { ...item, ...updates } : item)));
   };
   const displayResources = useMemo(() => {
     const seen = new Set();
@@ -837,7 +1532,8 @@ function StudentHome({ resources, setResources, resourceMeta, setResourceMeta, p
         keyword: selection.query,
         categoryId: selection.categoryId,
         directionId: selection.directionId,
-        type: selection.type
+        type: selection.type,
+        learningStage: selection.learningStage ?? learningStage
       });
       if (requestId !== resourceRequestRef.current) return;
       setResources(data.list || []);
@@ -848,7 +1544,8 @@ function StudentHome({ resources, setResources, resourceMeta, setResourceMeta, p
         totalPages: data.totalPages || 1
       });
     } catch (error) {
-      if (requestId === resourceRequestRef.current) setResourceError(error?.message || "课程加载失败，请重试");
+      if (requestId === resourceRequestRef.current)
+        setResourceError(error?.message || "课程加载失败，请重试");
     } finally {
       if (requestId === resourceRequestRef.current) setLoadingResources(false);
     }
@@ -898,71 +1595,138 @@ function StudentHome({ resources, setResources, resourceMeta, setResourceMeta, p
   };
   const openCatalog = (subject, node) => {
     const nodeTitle = typeof node === "string" ? node : node?.title;
-    const targetPath = typeof node === "object" && Array.isArray(node.path)
-      ? node.path
-      : findCategoryPath(nodeTitle || subject, tree) || [subject];
+    const targetPath =
+      typeof node === "object" && Array.isArray(node.path)
+        ? node.path
+        : findCategoryPath(nodeTitle || subject, tree) || [subject];
     const targetSubject = targetPath[targetPath.length - 1] || subject;
     setSelectedSubject(targetSubject);
     if (nodeTitle && targetSubject === subject) {
-      api("/learning/records", { method: "POST", body: JSON.stringify({ subject: targetSubject, knowledgeNode: nodeTitle, progress: 10 }) }).catch(() => {});
+      api("/learning/records", {
+        method: "POST",
+        body: JSON.stringify({ subject: targetSubject, knowledgeNode: nodeTitle, progress: 10 })
+      }).catch(() => {});
     }
     setPage("graph", { view: "catalog" });
   };
 
-  const spotlightCategories = visibleCatalog.slice(0, 6);
+  const spotlightCategories = visibleCatalog;
   const heroSubject = preferences[0] || visibleCatalog[0]?.name || "软件工程";
-  const heroCategory = visibleCatalog.find((item) => item.name === heroSubject) || visibleCatalog[0];
+  const heroCategory =
+    visibleCatalog.find((item) => item.name === heroSubject) || visibleCatalog[0];
   const graphPreviewLabels = (heroCategory?.nodes || []).slice(0, 5).map((item) => item.title);
+  const countKnowledgeLeaves = (nodes) => nodes.reduce(
+    (total, node) => total + (node.children?.length ? countKnowledgeLeaves(node.children) : 1), 0
+  );
+  const knowledgeNodeCount = countKnowledgeLeaves(tree);
 
   return (
     <main className="content studio-home">
       <section className="studio-hero" aria-label="知度课堂学习主张">
         <div className="studio-hero-copy">
           <span className="studio-kicker">KNOWLEDGE, CONNECTED.</span>
-          <h1>让知识形成结构，<br />让成长<span>看得见。</span></h1>
-          <p>知度课堂把课程、章节与知识关系放进同一个学习空间。你不只是在观看内容，而是在建立一套可以迁移的能力体系。</p>
+          <h1>
+            让知识形成结构，
+            <br />
+            让成长<span>看得见。</span>
+          </h1>
+          <p>
+            知度课堂把课程、章节与知识关系放进同一个学习空间。你不只是在观看内容，而是在建立一套可以迁移的能力体系。
+          </p>
           <form className="studio-search" onSubmit={confirmSelection}>
             <Search size={19} />
-            <input aria-label="搜索课程或知识点" placeholder="搜索课程、技术方向或知识点" value={query} onChange={(event) => setQuery(event.target.value)} />
-            <button type="submit" disabled={loadingResources}>{loadingResources ? "搜索中" : "开始探索"}<ArrowRight size={16} /></button>
+            <input
+              aria-label="搜索课程或知识点"
+              placeholder="搜索课程、技术方向或知识点"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+            <button type="submit" disabled={loadingResources}>
+              {loadingResources ? "搜索中" : "开始探索"}
+              <ArrowRight size={16} />
+            </button>
           </form>
           <div className="studio-hero-actions">
-            <button onClick={() => openCatalog(heroSubject)}>打开我的智慧图谱<GitBranch size={17} /></button>
-            <button onClick={() => document.getElementById("featured-courses")?.scrollIntoView({ behavior: "smooth" })}>查看课程目录<ChevronDown size={17} /></button>
+            <button onClick={() => openCatalog(heroSubject)}>
+              打开我的智慧图谱
+              <GitBranch size={17} />
+            </button>
+            <button
+              onClick={() =>
+                document.getElementById("featured-courses")?.scrollIntoView({ behavior: "smooth" })
+              }
+            >
+              查看课程目录
+              <ChevronDown size={17} />
+            </button>
           </div>
           <div className="studio-metrics">
-            <div><strong>{platformCategories.length || visibleCatalog.length}</strong><span>学习领域</span></div>
-            <div><strong>{resourceMeta?.total ?? displayResources.length}</strong><span>系统课程</span></div>
-            <div><strong>100+</strong><span>知识节点</span></div>
+            <div>
+              <strong>{platformCategories.length || visibleCatalog.length}</strong>
+              <span>学习领域</span>
+            </div>
+            <div>
+              <strong>{resourceMeta?.total ?? displayResources.length}</strong>
+              <span>系统课程</span>
+            </div>
+            <div>
+              <strong>{knowledgeNodeCount}</strong>
+              <span>知识节点</span>
+            </div>
           </div>
         </div>
 
         <aside className="studio-map-card">
           <div className="studio-map-head">
-            <div><span>YOUR LEARNING MAP</span><strong>{heroSubject} · 能力结构</strong></div>
-            <button onClick={() => openCatalog(heroSubject)}>展开图谱<ArrowRight size={14} /></button>
+            <div>
+              <span>YOUR LEARNING MAP</span>
+              <strong>{heroSubject} · 能力结构</strong>
+            </div>
+            <button onClick={() => openCatalog(heroSubject)}>
+              展开图谱
+              <ArrowRight size={14} />
+            </button>
           </div>
           <div className="studio-map-stage">
             <span className="studio-map-ring ring-large" />
             <span className="studio-map-ring ring-small" />
-            <button className="studio-map-node map-root" onClick={() => openCatalog(heroSubject)}><Brain size={24} /><strong>{heroSubject}</strong><small>当前主线</small></button>
+            <button className="studio-map-node map-root" onClick={() => openCatalog(heroSubject)}>
+              <Brain size={24} />
+              <strong>{heroSubject}</strong>
+              <small>当前主线</small>
+            </button>
             {graphPreviewLabels.map((label, index) => (
-              <button className={`studio-map-node map-node-${index + 1}`} key={label} onClick={() => openCatalog(heroSubject, { title: label })}>{label}</button>
+              <button
+                className={`studio-map-node map-node-${index + 1}`}
+                key={label}
+                onClick={() => openCatalog(heroSubject, { title: label })}
+              >
+                {label}
+              </button>
             ))}
           </div>
           <div className="studio-map-foot">
-            <span><i />正在学习</span>
+            <span>
+              <i />
+              正在学习
+            </span>
             <span>{graphPreviewLabels.length} 个关联方向</span>
           </div>
         </aside>
       </section>
 
+      <LearningPlanSummary user={user} setPage={setPage} />
       <nav className="studio-discipline-ribbon" aria-label="热门学习领域">
         {spotlightCategories.map((category, index) => (
           <button key={category.name} onClick={() => openCatalog(category.name)}>
             <span>0{index + 1}</span>
             <strong>{category.name}</strong>
-            <small>{(category.nodes || []).slice(0, 2).map((node) => node.title).join(" · ")}</small>
+            <small>
+              {(category.nodes || [])
+                .slice(0, 2)
+                .map((node) => node.title)
+                .join(" · ")}
+            </small>
             <ArrowRight size={15} />
           </button>
         ))}
@@ -975,7 +1739,10 @@ function StudentHome({ resources, setResources, resourceMeta, setResourceMeta, p
             <h2>从一门好课，进入一个完整领域</h2>
           </div>
           <details className="studio-filter-panel">
-            <summary>精确筛选课程<ChevronDown size={15} /></summary>
+            <summary>
+              精确筛选课程
+              <ChevronDown size={15} />
+            </summary>
             <SearchPanel
               query={query}
               onQueryChange={setQuery}
@@ -994,13 +1761,54 @@ function StudentHome({ resources, setResources, resourceMeta, setResourceMeta, p
             />
           </details>
         </div>
-        <div className="studio-course-tabs" role="list" aria-label="课程筛选">
-          {["本周精选", "人工智能", "Java", "前端开发", "云计算"].map((label, index) => (
-            <button className={confirmedSelection.query === (index ? label : "") ? "active" : ""} key={label} onClick={() => selectCourseTab(index ? label : "")}>{label}</button>
+        <div className="course-stage-filters" role="group" aria-label="课程学习阶段">
+          {[{ code: "", label: "全部阶段" }, ...LEARNING_STAGES].map((stage) => (
+            <button
+              key={stage.code}
+              aria-pressed={learningStage === stage.code}
+              onClick={() => {
+                setLearningStage(stage.code);
+                const selection = { ...confirmedSelection, learningStage: stage.code };
+                setConfirmedSelection(selection);
+                loadResources(1, selection);
+              }}
+            >
+              {stage.label}
+            </button>
           ))}
-          <span>{loadingResources ? "正在更新" : `${resourceMeta?.total ?? displayResources.length} 门课程可学`}</span>
         </div>
-        {resourceError && <div className="inline-error-state" role="alert"><span>{resourceError}</span><button type="button" disabled={loadingResources} onClick={() => loadResources(lastRequestRef.current.page, lastRequestRef.current.selection)}>重新加载</button></div>}
+        <div className="studio-course-tabs" role="list" aria-label="课程筛选">
+          {["本周精选", "考研备考", "人工智能", "Java", "前端开发", "云计算"].map(
+            (label, index) => (
+              <button
+                className={confirmedSelection.query === (index ? label : "") ? "active" : ""}
+                key={label}
+                onClick={() => selectCourseTab(index ? label : "")}
+              >
+                {label}
+              </button>
+            )
+          )}
+          <span>
+            {loadingResources
+              ? "正在更新"
+              : `${resourceMeta?.total ?? displayResources.length} 门课程可学`}
+          </span>
+        </div>
+        {resourceError && (
+          <div className="inline-error-state" role="alert">
+            <span>{resourceError}</span>
+            <button
+              type="button"
+              disabled={loadingResources}
+              onClick={() =>
+                loadResources(lastRequestRef.current.page, lastRequestRef.current.selection)
+              }
+            >
+              重新加载
+            </button>
+          </div>
+        )}
         <section className="resource-grid studio-course-grid">
           {displayResources.map((item) => (
             <CourseCard
@@ -1014,27 +1822,38 @@ function StudentHome({ resources, setResources, resourceMeta, setResourceMeta, p
               }}
             />
           ))}
-          {!displayResources.length && !loadingResources && !resourceError && <p className="empty-state-react">暂无匹配课程，可以换个关键词或让教师上传相关资源。</p>}
+          {!displayResources.length && !loadingResources && !resourceError && (
+            <p className="empty-state-react">暂无匹配课程，可以换个关键词或让教师上传相关资源。</p>
+          )}
         </section>
         <div className="pager-row">
-          <button disabled={loadingResources || (resourceMeta?.page || 1) <= 1} onClick={() => loadResources((resourceMeta?.page || 1) - 1)}>上一页</button>
-          <span>{resourceMeta?.page || 1} / {resourceMeta?.totalPages || 1}</span>
-          <button disabled={loadingResources || (resourceMeta?.page || 1) >= (resourceMeta?.totalPages || 1)} onClick={() => loadResources((resourceMeta?.page || 1) + 1)}>下一页</button>
+          <button
+            disabled={loadingResources || (resourceMeta?.page || 1) <= 1}
+            onClick={() => loadResources((resourceMeta?.page || 1) - 1)}
+          >
+            上一页
+          </button>
+          <span>
+            {resourceMeta?.page || 1} / {resourceMeta?.totalPages || 1}
+          </span>
+          <button
+            disabled={
+              loadingResources || (resourceMeta?.page || 1) >= (resourceMeta?.totalPages || 1)
+            }
+            onClick={() => loadResources((resourceMeta?.page || 1) + 1)}
+          >
+            下一页
+          </button>
         </div>
       </section>
 
-      <section className="studio-method">
-        <div className="studio-method-intro">
-          <span className="studio-kicker">A BETTER WAY TO LEARN</span>
-          <h2>课程结束，能力才刚刚开始。</h2>
-          <p>用结构化课程建立基础，用图谱确认关系，再用学习记录和 AI 分析形成长期反馈。</p>
-        </div>
-        <div className="studio-method-grid">
-          <article><span>01</span><GitBranch size={23} /><h3>知识关系可视化</h3><p>看见前置知识、关联章节和能力边界，不再盲目选课。</p></article>
-          <article><span>02</span><Brain size={23} /><h3>AI 学习分析</h3><p>基于真实进度发现薄弱点，生成下一阶段的学习建议。</p></article>
-          <article><span>03</span><Route size={23} /><h3>持续成长档案</h3><p>课程、笔记、提问与完成度共同沉淀为个人学习资产。</p></article>
-        </div>
-      </section>
+      <LearningWorkbench
+        user={user}
+        subject={heroSubject}
+        branches={graphPreviewLabels}
+        onOpenGraph={openCatalog}
+        setPage={setPage}
+      />
     </main>
   );
 }
@@ -1048,13 +1867,26 @@ function lessonMinutes(lesson) {
   return Math.max(0, Math.ceil(Number(lesson?.durationSeconds || 0) / 60));
 }
 
-function CourseDetailPage({ courseId, user, fallbackCourse, setResources, setPage, setSelectedSubject }) {
+function CourseDetailPage({
+  courseId,
+  user,
+  fallbackCourse,
+  setResources,
+  setPage,
+  setSelectedSubject
+}) {
   const [course, setCourse] = useState(fallbackCourse || null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [detailReload, setDetailReload] = useState(0);
   const [activeTab, setActiveTab] = useState("chapters");
-  const [community, setCommunity] = useState({ questions: [], notes: [], reviews: [], replies: [], reviewSummary: {} });
+  const [community, setCommunity] = useState({
+    questions: [],
+    notes: [],
+    reviews: [],
+    replies: [],
+    reviewSummary: {}
+  });
   const [questionText, setQuestionText] = useState("");
   const [noteDraft, setNoteDraft] = useState({ lessonTitle: "课程总览", content: "" });
   const [reviewDraft, setReviewDraft] = useState({ rating: 5, content: "" });
@@ -1097,41 +1929,56 @@ function CourseDetailPage({ courseId, user, fallbackCourse, setResources, setPag
     setLoading(true);
     setError("");
     let cancelled = false;
-    Promise.allSettled([getCourseDetail(courseId), getCourseCommunity(courseId)]).then(([detailResult, communityResult]) => {
-      if (cancelled) return;
-      if (detailResult.status === "fulfilled") {
-        setCourse(detailResult.value);
-      } else {
-        setError(detailResult.reason?.message || "课程详情加载失败");
-      }
-      if (communityResult.status === "fulfilled") {
-        const data = communityResult.value || {};
-        setCommunity({
-          questions: Array.isArray(data.questions) ? data.questions : [],
-          notes: Array.isArray(data.notes) ? data.notes : [],
-          reviews: Array.isArray(data.reviews) ? data.reviews : [],
-          replies: Array.isArray(data.replies) ? data.replies : [],
-          reviewSummary: data.reviewSummary || {}
-        });
-      }
-    }).finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+    Promise.allSettled([getCourseDetail(courseId), getCourseCommunity(courseId)])
+      .then(([detailResult, communityResult]) => {
+        if (cancelled) return;
+        if (detailResult.status === "fulfilled") {
+          setCourse(detailResult.value);
+        } else {
+          setError(detailResult.reason?.message || "课程详情加载失败");
+        }
+        if (communityResult.status === "fulfilled") {
+          const data = communityResult.value || {};
+          setCommunity({
+            questions: Array.isArray(data.questions) ? data.questions : [],
+            notes: Array.isArray(data.notes) ? data.notes : [],
+            reviews: Array.isArray(data.reviews) ? data.reviews : [],
+            replies: Array.isArray(data.replies) ? data.replies : [],
+            reviewSummary: data.reviewSummary || {}
+          });
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [courseId, detailReload]);
 
   const outline = course?.outline || {};
   const chapters = Array.isArray(outline.chapters) ? outline.chapters : [];
-  const knowledgeNodes = Array.isArray(course?.knowledgeNodes) && course.knowledgeNodes.length
-    ? course.knowledgeNodes.slice(0, 8)
-    : chapters.map((chapter) => ({ name: chapter.title.replace(/^第\s*\d+\s*章\s*·\s*/, "") }));
+  const knowledgeNodes =
+    Array.isArray(course?.knowledgeNodes) && course.knowledgeNodes.length
+      ? course.knowledgeNodes.slice(0, 8)
+      : chapters.flatMap((chapter) =>
+          chapter.lessons?.length
+            ? chapter.lessons.map((lesson) => ({ name: lesson.title }))
+            : [{ name: chapter.title.replace(/^第\s*\d+\s*章\s*·\s*/, "") }]
+        );
   const progress = Math.max(0, Math.min(Number(course?.progress || 0), 100));
   const totalLessons = chapters.reduce((sum, chapter) => sum + chapter.lessons.length, 0);
   const averageRating = Number(community.reviewSummary?.averageRating || 0);
   const adminPreview = user?.role === "admin";
-  const courseStudyText = learningPlayer.lesson?.contentText || course?.content || buildResourceTextContent(course || fallbackCourse || {});
+  const courseStudyText =
+    learningPlayer.lesson?.contentText ||
+    course?.content ||
+    buildResourceTextContent(course || fallbackCourse || {});
   const activeLessonType = learningPlayer.lesson?.lessonType || null;
-  const activeLessonResourceUrl = activeLessonType === "video"
-    ? learningPlayer.videoUrl
-    : learningPlayer.lesson?.playbackUrl || null;
+  const activeLessonResourceUrl =
+    activeLessonType === "video"
+      ? learningPlayer.videoUrl
+      : learningPlayer.lesson?.playbackUrl || null;
 
   const clearCurrentVideo = () => {
     const video = learningVideoRef.current;
@@ -1150,18 +1997,30 @@ function CourseDetailPage({ courseId, user, fallbackCourse, setResources, setPag
   const closeLearning = () => {
     cancelPlaybackRequest();
     clearCurrentVideo();
-    setLearningPlayer({ open: false, lesson: null, status: "idle", videoUrl: null, assetId: null, reasonCode: null });
+    setLearningPlayer({
+      open: false,
+      lesson: null,
+      status: "idle",
+      videoUrl: null,
+      assetId: null,
+      reasonCode: null
+    });
   };
 
-  useEffect(() => () => {
-    playbackAbortRef.current?.abort();
-    clearCurrentVideo();
-  }, []);
+  useEffect(
+    () => () => {
+      playbackAbortRef.current?.abort();
+      clearCurrentVideo();
+    },
+    []
+  );
 
   useEffect(() => {
     if (!learningPlayer.open) return;
     const frame = requestAnimationFrame(() => {
-      document.getElementById("course-player")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document
+        .getElementById("course-player")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
     return () => cancelAnimationFrame(frame);
   }, [learningPlayer.open, learningPlayer.lesson?.title]);
@@ -1198,22 +2057,52 @@ function CourseDetailPage({ courseId, user, fallbackCourse, setResources, setPag
       return;
     }
     try {
-      const playback = await getLessonPlayback(course.id, selectedLesson.id, { signal: controller.signal });
-      if (requestId !== playbackRequestRef.current || Number(playback.lessonId) !== Number(selectedLesson.id)) return;
+      const playback = await getLessonPlayback(course.id, selectedLesson.id, {
+        signal: controller.signal
+      });
+      if (
+        requestId !== playbackRequestRef.current ||
+        Number(playback.lessonId) !== Number(selectedLesson.id)
+      )
+        return;
       playbackAbortRef.current = null;
       if (playback.playable && playback.videoUrl) {
-        setLearningPlayer({ open: true, lesson: selectedLesson, status: "playable", videoUrl: playback.videoUrl, assetId: playback.assetId, reasonCode: null });
+        setLearningPlayer({
+          open: true,
+          lesson: selectedLesson,
+          status: "playable",
+          videoUrl: playback.videoUrl,
+          assetId: playback.assetId,
+          reasonCode: null
+        });
         setNotice("本课时独立视频已打开。");
         return;
       }
       const status = playback.reasonCode === "ASSET_NOT_READY" ? "processing" : "unavailable";
-      setLearningPlayer({ open: true, lesson: selectedLesson, status, videoUrl: null, assetId: null, reasonCode: playback.reasonCode });
-      setNotice(playback.reasonCode === "ASSET_NOT_READY" ? "视频正在处理中。" : "本课时暂无视频。");
+      setLearningPlayer({
+        open: true,
+        lesson: selectedLesson,
+        status,
+        videoUrl: null,
+        assetId: null,
+        reasonCode: playback.reasonCode
+      });
+      setNotice(
+        playback.reasonCode === "ASSET_NOT_READY" ? "视频正在处理中。" : "本课时暂无视频。"
+      );
     } catch (playbackError) {
-      if (playbackError?.code === "ERR_CANCELED" || requestId !== playbackRequestRef.current) return;
+      if (playbackError?.code === "ERR_CANCELED" || requestId !== playbackRequestRef.current)
+        return;
       playbackAbortRef.current = null;
       clearCurrentVideo();
-      setLearningPlayer({ open: true, lesson: selectedLesson, status: "error", videoUrl: null, assetId: null, reasonCode: "PLAYBACK_REQUEST_FAILED" });
+      setLearningPlayer({
+        open: true,
+        lesson: selectedLesson,
+        status: "error",
+        videoUrl: null,
+        assetId: null,
+        reasonCode: "PLAYBACK_REQUEST_FAILED"
+      });
       setNotice(playbackError?.message || "课时视频加载失败，请重试。");
     }
   };
@@ -1228,7 +2117,9 @@ function CourseDetailPage({ courseId, user, fallbackCourse, setResources, setPag
       }
       const courseProgress = await getCourseLearningProgress(course.id);
       const allLessons = chapters.flatMap((chapter) => chapter.lessons || []);
-      const resumeLesson = allLessons.find((item) => Number(item.id) === Number(courseProgress.lastLessonId));
+      const resumeLesson = allLessons.find(
+        (item) => Number(item.id) === Number(courseProgress.lastLessonId)
+      );
       await openLearning(resumeLesson || null);
     } catch (actionError) {
       handleActionError(actionError, "打开学习页失败");
@@ -1245,9 +2136,16 @@ function CourseDetailPage({ courseId, user, fallbackCourse, setResources, setPag
     }
     setBusyAction("complete-learning");
     try {
-      await api("/learning/records", { method: "POST", body: JSON.stringify({ resourceId: course.id, progress: 100 }) });
+      await api("/learning/records", {
+        method: "POST",
+        body: JSON.stringify({ resourceId: course.id, progress: 100 })
+      });
       setCourse((current) => ({ ...current, progress: 100 }));
-      setResources((items) => items.map((item) => Number(item.id) === Number(course.id) ? { ...item, progress: 100 } : item));
+      setResources((items) =>
+        items.map((item) =>
+          Number(item.id) === Number(course.id) ? { ...item, progress: 100 } : item
+        )
+      );
       setNotice("本课程已标记完成，学习进度更新为 100%。");
     } catch (actionError) {
       handleActionError(actionError, "课程完成状态保存失败");
@@ -1322,11 +2220,19 @@ function CourseDetailPage({ courseId, user, fallbackCourse, setResources, setPag
   };
 
   if (loading) {
-    return <main className="course-detail-loading"><span className="studio-kicker">LOADING COURSE</span><h2>正在建立课程学习空间...</h2></main>;
+    return (
+      <CourseLoading />
+    );
   }
 
   if (error || !course) {
-    return <main className="course-detail-loading"><h2 role="alert">{error || "课程不存在或已下架"}</h2><button onClick={() => setDetailReload((value) => value + 1)}>重新加载</button><button onClick={() => setPage("home")}>返回首页</button></main>;
+    return (
+      <main className="course-detail-loading">
+        <h2 role="alert">{error || "课程不存在或已下架"}</h2>
+        <button onClick={() => setDetailReload((value) => value + 1)}>重新加载</button>
+        <button onClick={() => setPage("home")}>返回首页</button>
+      </main>
+    );
   }
 
   const tabs = [
@@ -1341,33 +2247,99 @@ function CourseDetailPage({ courseId, user, fallbackCourse, setResources, setPag
     <main className="course-detail-page">
       <section className="course-detail-hero">
         <div className="course-detail-hero-inner">
-          <button className="course-back-button" onClick={() => setPage("home")}><ArrowRight size={15} />返回课程大厅</button>
+          <button className="course-back-button" onClick={() => setPage("home")}>
+            <ArrowRight size={15} />
+            返回课程大厅
+          </button>
           <div className="course-hero-layout">
             <div className="course-hero-copy">
-              <div className="course-breadcrumb"><span>{course.categoryName || "课程"}</span><i />{course.directionName || course.subject}</div>
+              <div className="course-breadcrumb">
+                <span>{course.categoryName || "课程"}</span>
+                <i />
+                {course.directionName || course.subject}
+              </div>
               <span className="course-status-badge">系统课程 · 持续更新</span>
               <h1>{course.title}</h1>
-              <p>{course.description || `围绕 ${course.subject} 的核心能力组织章节、练习与知识关系，帮助你从理解走向独立实践。`}</p>
+              <p>
+                {course.description ||
+                  `围绕 ${course.subject} 的核心能力组织章节、练习与知识关系，帮助你从理解走向独立实践。`}
+              </p>
               <div className="course-hero-meta">
-                <span><Clock3 size={17} />{Math.ceil(Number(outline.totalDurationSeconds || course.minutes * 60 || 0) / 60)} 分钟</span>
-                <span><Users size={17} />{course.learnerCount || 0} 人学习</span>
-                <span><Star size={17} />{averageRating ? averageRating.toFixed(1) : "暂无评分"}</span>
-                <span><BarChart3 size={17} />{course.difficulty || course.level || "入门"}</span>
+                <span>
+                  <Clock3 size={17} />
+                  {Math.ceil(
+                    Number(outline.totalDurationSeconds || course.minutes * 60 || 0) / 60
+                  )}{" "}
+                  分钟
+                </span>
+                <span>
+                  <Users size={17} />
+                  {course.learnerCount || 0} 人学习
+                </span>
+                <span>
+                  <Star size={17} />
+                  {averageRating ? averageRating.toFixed(1) : "暂无评分"}
+                </span>
+                <span>
+                  <BarChart3 size={17} />
+                  {course.difficulty || course.level || "入门"}
+                </span>
               </div>
-              <div className="course-instructor"><span>{String(course.teacher || "平台讲师").slice(0, 1)}</span><div><strong>{course.teacher || "平台讲师"}</strong><small>{course.directionName || course.subject} 课程讲师</small></div></div>
+              <div className="course-instructor">
+                <span>{String(course.teacher || "平台讲师").slice(0, 1)}</span>
+                <div>
+                  <strong>{course.teacher || "平台讲师"}</strong>
+                  <small>{course.directionName || course.subject} 课程讲师</small>
+                </div>
+              </div>
+              <CourseLearningHighlights
+                chapters={chapters}
+                onOpenLesson={openLearning}
+                disabled={loading || !!busyAction}
+              />
             </div>
             <aside className="course-enroll-card">
-              <button type="button" className="course-enroll-visual" onClick={startLearning} disabled={loading || !!busyAction} aria-label={course.type === "video" ? "播放课程视频" : "打开课程学习资料"}>
-                {course.type === "video" ? <PlayCircle size={52} /> : <BookOpen size={48} />}
-                <strong>{course.type === "video" ? "点击播放课程" : "点击打开课程"}</strong>
-                <span>{course.type === "video" ? "视频课程" : "图文学习资料"}</span>
+              <button
+                type="button"
+                className="course-enroll-visual"
+                onClick={startLearning}
+                disabled={loading || !!busyAction}
+                aria-label={course.type === "video" ? "播放课程视频" : "打开课程学习资料"}
+              >
+                <CourseCover item={course} variant="detail" showBadge={false} />
+                <span className="course-media-action">
+                  {course.type === "video" ? <PlayCircle size={18} /> : <BookOpen size={18} />}
+                  {course.type === "video" ? "打开视频课时" : "打开图文课时"}
+                </span>
               </button>
               <div className="course-enroll-body">
-                <div className="course-enroll-progress"><span><b style={{ width: `${progress}%` }} /></span><strong>{progress}%</strong></div>
-                <button onClick={startLearning} disabled={loading || !!busyAction}>{busyAction === "learning" ? "正在打开..." : progress > 0 ? "继续学习" : "开始学习"}<ArrowRight size={16} /></button>
-                <p><CheckCircle2 size={15} />包含 {chapters.length} 章、{totalLessons} 节内容</p>
-                <p><CheckCircle2 size={15} />课程图谱与章节同步关联</p>
-                <p><CheckCircle2 size={15} />学习记录永久保留</p>
+                <div className="course-enroll-progress">
+                  <span>
+                    <b style={{ width: `${progress}%` }} />
+                  </span>
+                  <strong>{progress}%</strong>
+                </div>
+                <button onClick={startLearning} disabled={loading || !!busyAction}>
+                  {busyAction === "learning"
+                    ? "正在打开..."
+                    : progress > 0
+                      ? "继续学习"
+                      : "开始学习"}
+                  <ArrowRight size={16} />
+                </button>
+                <p>
+                  <CheckCircle2 size={15} />
+                  包含 {chapters.length} 章、{totalLessons} 节内容
+                </p>
+                <p>
+                  <CheckCircle2 size={15} />
+                  课程图谱与章节同步关联
+                </p>
+                <p>
+                  <CheckCircle2 size={15} />
+                  学习记录永久保留
+                </p>
+                <CourseArtworkCredit />
               </div>
             </aside>
           </div>
@@ -1378,43 +2350,127 @@ function CourseDetailPage({ courseId, user, fallbackCourse, setResources, setPag
         <div>
           {tabs.map((tab) => {
             const Icon = tab.icon;
-            return <button className={activeTab === tab.id ? "active" : ""} key={tab.id} onClick={() => setActiveTab(tab.id)}><Icon size={17} />{tab.label}<span>{tab.count}</span></button>;
+            return (
+              <button
+                className={activeTab === tab.id ? "active" : ""}
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                <Icon size={17} />
+                {tab.label}
+                <span>{tab.count}</span>
+              </button>
+            );
           })}
         </div>
       </nav>
 
       <section className="course-detail-content" id="course-content">
         <div className="course-content-main">
-          {notice && <p className="course-notice"><CheckCircle2 size={16} />{notice}</p>}
+          {notice && (
+            <p className="course-notice">
+              <CheckCircle2 size={16} />
+              {notice}
+            </p>
+          )}
 
           {learningPlayer.open && (
             <section className="course-learning-player" id="course-player" aria-label="课程学习区">
               <header>
-                <div><span>NOW LEARNING</span><h2>{learningPlayer.lesson?.title || "课程导学"}</h2></div>
-                <button type="button" onClick={closeLearning}>收起学习区</button>
+                <div>
+                  <span>NOW LEARNING</span>
+                  <h2>{learningPlayer.lesson?.title || "课程导学"}</h2>
+                </div>
+                <button type="button" onClick={closeLearning}>
+                  收起学习区
+                </button>
               </header>
               {activeLessonType === "video" && learningPlayer.status === "loading" ? (
-                <div className="course-player-empty"><RefreshCcw size={46} /><div><strong>正在加载当前课时视频</strong><p>切换课时后不会继续显示上一课时内容。</p></div></div>
-              ) : activeLessonType === "video" && learningPlayer.status === "playable" && activeLessonResourceUrl ? (
-                <CourseVideo ref={learningVideoRef} key={`${learningPlayer.lesson?.id}-${learningPlayer.assetId}`} src={activeLessonResourceUrl} title={learningPlayer.lesson?.title || course.title} autoPlay />
+                <div className="course-player-empty">
+                  <RefreshCcw size={46} />
+                  <div>
+                    <strong>正在加载当前课时视频</strong>
+                    <p>切换课时后不会继续显示上一课时内容。</p>
+                  </div>
+                </div>
+              ) : activeLessonType === "video" &&
+                learningPlayer.status === "playable" &&
+                activeLessonResourceUrl ? (
+                <CourseVideo
+                  ref={learningVideoRef}
+                  key={`${learningPlayer.lesson?.id}-${learningPlayer.assetId}`}
+                  src={activeLessonResourceUrl}
+                  title={learningPlayer.lesson?.title || course.title}
+                  autoPlay
+                />
               ) : activeLessonType === "video" ? (
                 <div className="course-player-empty">
                   <PlayCircle size={54} />
-                  <div><strong>{learningPlayer.status === "processing" ? "视频正在处理中" : learningPlayer.status === "error" ? "课时视频加载失败" : "本课时暂无视频"}</strong><p>每个课时只读取自己绑定的视频，不会重复播放其他课时的视频。</p>{learningPlayer.status === "error" && <button type="button" onClick={() => openLearning(learningPlayer.lesson)}>重新加载</button>}</div>
+                  <div>
+                    <strong>
+                      {learningPlayer.status === "processing"
+                        ? "视频正在处理中"
+                        : learningPlayer.status === "error"
+                          ? "课时视频加载失败"
+                          : "本课时暂无视频"}
+                    </strong>
+                    <p>每个课时只读取自己绑定的视频，不会重复播放其他课时的视频。</p>
+                    {learningPlayer.status === "error" && (
+                      <button type="button" onClick={() => openLearning(learningPlayer.lesson)}>
+                        重新加载
+                      </button>
+                    )}
+                  </div>
                 </div>
               ) : activeLessonType === "document" && activeLessonResourceUrl ? (
-                <div className="course-player-empty"><FileText size={48} /><div><strong>本课时为文档学习</strong><p><a href={activeLessonResourceUrl} target="_blank" rel="noreferrer">打开课程文档</a></p></div></div>
+                <div className="course-player-empty">
+                  <FileText size={48} />
+                  <div>
+                    <strong>本课时为文档学习</strong>
+                    <p>
+                      <a href={activeLessonResourceUrl} target="_blank" rel="noreferrer">
+                        打开课程文档
+                      </a>
+                    </p>
+                  </div>
+                </div>
               ) : (
-                <div className="course-reading-label"><BookOpen size={20} /><span>{activeLessonType === "exercise" ? "练习课时" : "图文课程 · 阅读学习"}</span></div>
+                <div className="course-reading-label">
+                  <BookOpen size={20} />
+                  <span>
+                    {activeLessonType === "exercise" ? "练习课时" : "图文课程 · 阅读学习"}
+                  </span>
+                </div>
               )}
               {activeLessonType !== "video" && activeLessonType !== "document" && (
                 <article className="course-reading-content">
-                  {courseStudyText.split(/\n+/).filter(Boolean).map((paragraph, index) => <p key={`course-reading-${index}`}>{paragraph}</p>)}
+                  {courseStudyText
+                    .split(/\n+/)
+                    .filter(Boolean)
+                    .map((paragraph, index) => (
+                      <p key={`course-reading-${index}`}>{paragraph}</p>
+                    ))}
                 </article>
               )}
               <footer>
-                <span><Clock3 size={15} />本节约 {lessonMinutes(learningPlayer.lesson)} 分钟</span>
-                <button type="button" onClick={completeLearning} disabled={busyAction === "complete-learning" || adminPreview}>{adminPreview ? "管理员预览" : busyAction === "complete-learning" ? "保存中..." : progress >= 100 ? "课程已完成" : "完成本课"}<CheckCircle2 size={16} /></button>
+                <span>
+                  <Clock3 size={15} />
+                  本节约 {lessonMinutes(learningPlayer.lesson)} 分钟
+                </span>
+                <button
+                  type="button"
+                  onClick={completeLearning}
+                  disabled={busyAction === "complete-learning" || adminPreview}
+                >
+                  {adminPreview
+                    ? "管理员预览"
+                    : busyAction === "complete-learning"
+                      ? "保存中..."
+                      : progress >= 100
+                        ? "课程已完成"
+                        : "完成本课"}
+                  <CheckCircle2 size={16} />
+                </button>
               </footer>
             </section>
           )}
@@ -1425,90 +2481,379 @@ function CourseDetailPage({ courseId, user, fallbackCourse, setResources, setPag
                 <span className="studio-kicker">COURSE OUTCOME</span>
                 <h2>完成课程后，你将建立这些能力</h2>
                 <div className="course-outcomes">
-                  {knowledgeNodes.slice(0, 6).map((node, index) => <span key={node.id || node.name || index}><CheckCircle2 size={16} />{node.name || node.title}</span>)}
+                  {knowledgeNodes.slice(0, 6).map((node, index) => (
+                    <span key={node.id || node.name || index}>
+                      <CheckCircle2 size={16} />
+                      {node.name || node.title}
+                    </span>
+                  ))}
                 </div>
               </section>
-              <div className="course-section-heading"><div><span className="studio-kicker">CURRICULUM</span><h2>课程章节</h2></div><span>{chapters.length} 章 · {totalLessons} 节</span></div>
+              <div className="course-section-heading">
+                <div>
+                  <span className="studio-kicker">CURRICULUM</span>
+                  <h2>课程章节</h2>
+                </div>
+                <span>
+                  {chapters.length} 章 · {totalLessons} 节
+                </span>
+              </div>
               <div className="curriculum-list">
                 {chapters.map((chapter, chapterIndex) => (
                   <details key={chapter.id} open={chapterIndex === 0 ? true : undefined}>
-                    <summary><span>0{chapterIndex + 1}</span><div><strong>{chapter.title}</strong><small>{chapter.description}</small></div><ChevronDown size={18} /></summary>
+                    <summary>
+                      <span>0{chapterIndex + 1}</span>
+                      <div>
+                        <strong>{chapter.title}</strong>
+                        <small>{chapter.description}</small>
+                      </div>
+                      <ChevronDown size={18} />
+                    </summary>
                     <div className="lesson-list">
                       {chapter.lessons.map((lesson, lessonIndex) => (
-                        <button key={lesson.id || lesson.title} onClick={() => openLearning(lesson)}><span>{lesson.lessonType === "video" ? <PlayCircle size={18} /> : lesson.lessonType === "document" ? <FileText size={18} /> : <BookOpen size={18} />}{lesson.title}</span><small>{lesson.lessonType === "video" ? lesson.assetReady ? "立即播放" : "视频待上传" : lesson.assetReady ? "立即学习" : "内容待配置"} · {lessonMinutes(lesson)} 分钟</small></button>
+                        <button
+                          key={lesson.id || lesson.title}
+                          onClick={() => openLearning(lesson)}
+                        >
+                          <span>
+                            {lesson.lessonType === "video" ? (
+                              <PlayCircle size={18} />
+                            ) : lesson.lessonType === "document" ? (
+                              <FileText size={18} />
+                            ) : (
+                              <BookOpen size={18} />
+                            )}
+                            {lesson.title}
+                          </span>
+                          <small>
+                            {lesson.lessonType === "video"
+                              ? lesson.assetReady
+                                ? "立即播放"
+                                : "视频待上传"
+                              : lesson.assetReady
+                                ? "立即学习"
+                                : "内容待配置"}{" "}
+                            · {lessonMinutes(lesson)} 分钟
+                          </small>
+                        </button>
                       ))}
                     </div>
                   </details>
                 ))}
-                {!chapters.length && <p className="empty-state-react">教师尚未发布课程目录，暂时没有可学习的课时。</p>}
+                {!chapters.length && (
+                  <p className="empty-state-react">教师尚未发布课程目录，暂时没有可学习的课时。</p>
+                )}
               </div>
             </>
           )}
 
           {activeTab === "questions" && (
             <section className="community-panel">
-              <div className="course-section-heading"><div><span className="studio-kicker">COURSE Q&A</span><h2>课程问答</h2></div><span>围绕课程内容进行讨论</span></div>
+              <div className="course-section-heading">
+                <div>
+                  <span className="studio-kicker">COURSE Q&A</span>
+                  <h2>课程问答</h2>
+                </div>
+                <span>围绕课程内容进行讨论</span>
+              </div>
               <form className="community-composer" onSubmit={submitQuestion}>
-                <textarea value={questionText} onChange={(event) => setQuestionText(event.target.value)} maxLength={500} placeholder="描述你在学习中遇到的问题，清晰的问题更容易获得有效回答。" />
-                <div><small>{questionText.length}/500</small><button disabled={!questionText.trim() || busyAction === "question"}>{busyAction === "question" ? "发布中..." : "发布问题"}<Send size={15} /></button></div>
+                <textarea
+                  value={questionText}
+                  onChange={(event) => setQuestionText(event.target.value)}
+                  maxLength={500}
+                  placeholder="描述你在学习中遇到的问题，清晰的问题更容易获得有效回答。"
+                />
+                <div>
+                  <small>{questionText.length}/500</small>
+                  <button disabled={!questionText.trim() || busyAction === "question"}>
+                    {busyAction === "question" ? "发布中..." : "发布问题"}
+                    <Send size={15} />
+                  </button>
+                </div>
               </form>
               <div className="community-list">
-                {community.questions.map((item) => <article key={item.id}><span className="community-avatar">{String(item.authorName || "学").slice(0, 1)}</span><div><header><strong>{item.authorName || "课程学员"}</strong><small>{formatCommunityDate(item.createdAt)}</small></header><p>{item.content}</p><footer><MessageCircle size={14} />{item.answerCount || 0} 条教师回复</footer>{community.replies.filter((reply) => reply.targetType === "question" && Number(reply.targetId) === Number(item.id)).map((reply) => <div className="teacher-reply" key={reply.id}><strong>{reply.teacherName || "课程教师"} 回复</strong><p>{reply.content}</p><small>{formatCommunityDate(reply.createdAt)}</small></div>)}</div></article>)}
-                {!community.questions.length && <div className="community-empty"><MessageCircle size={28} /><strong>还没有课程问题</strong><p>成为第一个提出高质量问题的学习者。</p></div>}
+                {community.questions.map((item) => (
+                  <article key={item.id}>
+                    <span className="community-avatar">
+                      {String(item.authorName || "学").slice(0, 1)}
+                    </span>
+                    <div>
+                      <header>
+                        <strong>{item.authorName || "课程学员"}</strong>
+                        <small>{formatCommunityDate(item.createdAt)}</small>
+                      </header>
+                      <p>{item.content}</p>
+                      <footer>
+                        <MessageCircle size={14} />
+                        {item.answerCount || 0} 条教师回复
+                      </footer>
+                      {community.replies
+                        .filter(
+                          (reply) =>
+                            reply.targetType === "question" &&
+                            Number(reply.targetId) === Number(item.id)
+                        )
+                        .map((reply) => (
+                          <div className="teacher-reply" key={reply.id}>
+                            <strong>{reply.teacherName || "课程教师"} 回复</strong>
+                            <p>{reply.content}</p>
+                            <small>{formatCommunityDate(reply.createdAt)}</small>
+                          </div>
+                        ))}
+                    </div>
+                  </article>
+                ))}
+                {!community.questions.length && (
+                  <div className="community-empty">
+                    <MessageCircle size={28} />
+                    <strong>还没有课程问题</strong>
+                    <p>成为第一个提出高质量问题的学习者。</p>
+                  </div>
+                )}
               </div>
             </section>
           )}
 
           {activeTab === "notes" && (
             <section className="community-panel">
-              <div className="course-section-heading"><div><span className="studio-kicker">PRIVATE NOTES</span><h2>我的课程笔记</h2></div><span>仅自己可见</span></div>
+              <div className="course-section-heading">
+                <div>
+                  <span className="studio-kicker">PRIVATE NOTES</span>
+                  <h2>我的课程笔记</h2>
+                </div>
+                <span>仅自己可见</span>
+              </div>
               <form className="community-composer note-composer" onSubmit={submitNote}>
-                <select value={noteDraft.lessonTitle} onChange={(event) => setNoteDraft((current) => ({ ...current, lessonTitle: event.target.value }))}>
+                <select
+                  value={noteDraft.lessonTitle}
+                  onChange={(event) =>
+                    setNoteDraft((current) => ({ ...current, lessonTitle: event.target.value }))
+                  }
+                >
                   <option>课程总览</option>
-                  {chapters.flatMap((chapter) => chapter.lessons).map((lesson) => <option key={lesson.title}>{lesson.title}</option>)}
+                  {chapters
+                    .flatMap((chapter) => chapter.lessons)
+                    .map((lesson) => (
+                      <option key={lesson.title}>{lesson.title}</option>
+                    ))}
                 </select>
-                <textarea value={noteDraft.content} onChange={(event) => setNoteDraft((current) => ({ ...current, content: event.target.value }))} maxLength={3000} placeholder="记录关键概念、代码思路或还需要验证的问题..." />
-                <div><small>{noteDraft.content.length}/3000</small><button disabled={!noteDraft.content.trim() || busyAction === "note"}>{busyAction === "note" ? "保存中..." : "保存笔记"}<NotebookPen size={15} /></button></div>
+                <textarea
+                  value={noteDraft.content}
+                  onChange={(event) =>
+                    setNoteDraft((current) => ({ ...current, content: event.target.value }))
+                  }
+                  maxLength={3000}
+                  placeholder="记录关键概念、代码思路或还需要验证的问题..."
+                />
+                <div>
+                  <small>{noteDraft.content.length}/3000</small>
+                  <button disabled={!noteDraft.content.trim() || busyAction === "note"}>
+                    {busyAction === "note" ? "保存中..." : "保存笔记"}
+                    <NotebookPen size={15} />
+                  </button>
+                </div>
               </form>
               <div className="note-list">
-                {community.notes.map((item) => <article key={item.id}><header><span>{item.lessonTitle || "课程总览"}</span><small>{formatCommunityDate(item.updatedAt || item.createdAt)}</small></header><p>{item.content}</p><button onClick={() => removeNote(item.id)} disabled={busyAction === `note-${item.id}`}>删除</button></article>)}
-                {!community.notes.length && <div className="community-empty"><NotebookPen size={28} /><strong>开始记录第一条笔记</strong><p>笔记会与你的账号绑定，在下次学习时继续使用。</p></div>}
+                {community.notes.map((item) => (
+                  <article key={item.id}>
+                    <header>
+                      <span>{item.lessonTitle || "课程总览"}</span>
+                      <small>{formatCommunityDate(item.updatedAt || item.createdAt)}</small>
+                    </header>
+                    <p>{item.content}</p>
+                    <button
+                      onClick={() => removeNote(item.id)}
+                      disabled={busyAction === `note-${item.id}`}
+                    >
+                      删除
+                    </button>
+                  </article>
+                ))}
+                {!community.notes.length && (
+                  <div className="community-empty">
+                    <NotebookPen size={28} />
+                    <strong>开始记录第一条笔记</strong>
+                    <p>笔记会与你的账号绑定，在下次学习时继续使用。</p>
+                  </div>
+                )}
               </div>
             </section>
           )}
 
           {activeTab === "reviews" && (
             <section className="community-panel">
-              <div className="course-section-heading"><div><span className="studio-kicker">COURSE REVIEWS</span><h2>课程评价</h2></div><span>{community.reviewSummary?.reviewCount || 0} 位学习者参与</span></div>
-              <div className="review-summary"><strong>{averageRating ? averageRating.toFixed(1) : "—"}</strong><div><span>{[1,2,3,4,5].map((value) => <Star key={value} size={18} className={value <= Math.round(averageRating) ? "filled" : ""} />)}</span><p>{averageRating ? "来自真实学习记录的评价" : "等待第一条课程评价"}</p></div></div>
+              <div className="course-section-heading">
+                <div>
+                  <span className="studio-kicker">COURSE REVIEWS</span>
+                  <h2>课程评价</h2>
+                </div>
+                <span>{community.reviewSummary?.reviewCount || 0} 位学习者参与</span>
+              </div>
+              <div className="review-summary">
+                <strong>{averageRating ? averageRating.toFixed(1) : "—"}</strong>
+                <div>
+                  <span>
+                    {[1, 2, 3, 4, 5].map((value) => (
+                      <Star
+                        key={value}
+                        size={18}
+                        className={value <= Math.round(averageRating) ? "filled" : ""}
+                      />
+                    ))}
+                  </span>
+                  <p>{averageRating ? "来自真实学习记录的评价" : "等待第一条课程评价"}</p>
+                </div>
+              </div>
               <form className="community-composer review-composer" onSubmit={submitReview}>
-                <div className="rating-picker"><span>我的评分</span>{[1,2,3,4,5].map((value) => <button type="button" key={value} className={value <= reviewDraft.rating ? "active" : ""} onClick={() => setReviewDraft((current) => ({ ...current, rating: value }))}><Star size={20} /></button>)}</div>
-                <textarea value={reviewDraft.content} onChange={(event) => setReviewDraft((current) => ({ ...current, content: event.target.value }))} maxLength={1000} placeholder="分享课程最有价值的部分，以及你希望继续改进的地方。" />
-                <div><small>{reviewDraft.content.length}/1000</small><button disabled={!reviewDraft.content.trim() || busyAction === "review"}>{busyAction === "review" ? "提交中..." : "提交评价"}<Send size={15} /></button></div>
+                <div className="rating-picker">
+                  <span>我的评分</span>
+                  {[1, 2, 3, 4, 5].map((value) => (
+                    <button
+                      type="button"
+                      key={value}
+                      className={value <= reviewDraft.rating ? "active" : ""}
+                      onClick={() => setReviewDraft((current) => ({ ...current, rating: value }))}
+                    >
+                      <Star size={20} />
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  value={reviewDraft.content}
+                  onChange={(event) =>
+                    setReviewDraft((current) => ({ ...current, content: event.target.value }))
+                  }
+                  maxLength={1000}
+                  placeholder="分享课程最有价值的部分，以及你希望继续改进的地方。"
+                />
+                <div>
+                  <small>{reviewDraft.content.length}/1000</small>
+                  <button disabled={!reviewDraft.content.trim() || busyAction === "review"}>
+                    {busyAction === "review" ? "提交中..." : "提交评价"}
+                    <Send size={15} />
+                  </button>
+                </div>
               </form>
               <div className="community-list review-list">
-                {community.reviews.map((item) => <article key={item.id}><span className="community-avatar">{String(item.authorName || "学").slice(0, 1)}</span><div><header><strong>{item.authorName || "课程学员"}</strong><span>{Array.from({ length: 5 }, (_, index) => <Star key={index} size={13} className={index < item.rating ? "filled" : ""} />)}</span><small>{formatCommunityDate(item.updatedAt || item.createdAt)}</small></header><p>{item.content}</p>{community.replies.filter((reply) => reply.targetType === "review" && Number(reply.targetId) === Number(item.id)).map((reply) => <div className="teacher-reply" key={reply.id}><strong>{reply.teacherName || "课程教师"} 回复</strong><p>{reply.content}</p><small>{formatCommunityDate(reply.createdAt)}</small></div>)}</div></article>)}
+                {community.reviews.map((item) => (
+                  <article key={item.id}>
+                    <span className="community-avatar">
+                      {String(item.authorName || "学").slice(0, 1)}
+                    </span>
+                    <div>
+                      <header>
+                        <strong>{item.authorName || "课程学员"}</strong>
+                        <span>
+                          {Array.from({ length: 5 }, (_, index) => (
+                            <Star
+                              key={index}
+                              size={13}
+                              className={index < item.rating ? "filled" : ""}
+                            />
+                          ))}
+                        </span>
+                        <small>{formatCommunityDate(item.updatedAt || item.createdAt)}</small>
+                      </header>
+                      <p>{item.content}</p>
+                      {community.replies
+                        .filter(
+                          (reply) =>
+                            reply.targetType === "review" &&
+                            Number(reply.targetId) === Number(item.id)
+                        )
+                        .map((reply) => (
+                          <div className="teacher-reply" key={reply.id}>
+                            <strong>{reply.teacherName || "课程教师"} 回复</strong>
+                            <p>{reply.content}</p>
+                            <small>{formatCommunityDate(reply.createdAt)}</small>
+                          </div>
+                        ))}
+                    </div>
+                  </article>
+                ))}
               </div>
             </section>
           )}
 
           {activeTab === "graph" && (
             <section className="course-graph-panel">
-              <div className="course-section-heading"><div><span className="studio-kicker">RELATED KNOWLEDGE GRAPH</span><h2>与本课程相关的知识图谱</h2></div><button onClick={openRelatedGraph}>进入完整图谱<ArrowRight size={15} /></button></div>
+              <div className="course-section-heading">
+                <div>
+                  <span className="studio-kicker">RELATED KNOWLEDGE GRAPH</span>
+                  <h2>与本课程相关的知识图谱</h2>
+                </div>
+                <button onClick={openRelatedGraph}>
+                  进入完整图谱
+                  <ArrowRight size={15} />
+                </button>
+              </div>
               <p>图谱将课程章节放回完整知识体系中，帮助你确认前置能力、当前重点与后续方向。</p>
               <div className="course-graph-stage">
-                <span className="course-graph-orbit orbit-a" /><span className="course-graph-orbit orbit-b" />
-                <button className="course-graph-root" onClick={openRelatedGraph}><GitBranch size={24} /><strong>{course.directionName || course.subject}</strong><small>课程主线</small></button>
-                {knowledgeNodes.slice(0, 8).map((node, index) => <button className={`course-graph-node course-graph-node-${index + 1}`} key={node.id || node.name || index} onClick={openRelatedGraph}>{node.name || node.title}</button>)}
+                <span className="course-graph-orbit orbit-a" />
+                <span className="course-graph-orbit orbit-b" />
+                <button className="course-graph-root" onClick={openRelatedGraph}>
+                  <GitBranch size={24} />
+                  <strong>{course.directionName || course.subject}</strong>
+                  <small>课程主线</small>
+                </button>
+                {knowledgeNodes.slice(0, 8).map((node, index) => (
+                  <button
+                    className={`course-graph-node course-graph-node-${index + 1}`}
+                    key={node.id || node.name || index}
+                    onClick={openRelatedGraph}
+                  >
+                    {node.name || node.title}
+                  </button>
+                ))}
               </div>
-              <div className="course-graph-insight"><Sparkles size={20} /><div><strong>学习建议</strong><p>优先完成前两个知识节点，再进入工程化实践章节，可以减少概念跳跃带来的理解负担。</p></div></div>
+              <div className="course-graph-insight">
+                <Sparkles size={20} />
+                <div>
+                  <strong>学习建议</strong>
+                  <p>
+                    优先完成前两个知识节点，再进入工程化实践章节，可以减少概念跳跃带来的理解负担。
+                  </p>
+                </div>
+              </div>
             </section>
           )}
         </div>
 
         <aside className="course-content-side">
-          <section><span className="studio-kicker">COURSE AT A GLANCE</span><h3>课程信息</h3><dl><div><dt>难度</dt><dd>{course.difficulty || course.level || "入门"}</dd></div><div><dt>章节</dt><dd>{chapters.length} 章</dd></div><div><dt>内容</dt><dd>{totalLessons} 节</dd></div><div><dt>学习进度</dt><dd>{progress}%</dd></div></dl></section>
-          <section><span className="studio-kicker">KNOWLEDGE PATH</span><h3>关联知识</h3><div className="course-side-nodes">{knowledgeNodes.slice(0, 6).map((node, index) => <button key={node.id || node.name || index} onClick={() => setActiveTab("graph")}>{node.name || node.title}<ArrowRight size={13} /></button>)}</div></section>
+          <section>
+            <span className="studio-kicker">COURSE AT A GLANCE</span>
+            <h3>课程信息</h3>
+            <dl>
+              <div>
+                <dt>难度</dt>
+                <dd>{course.difficulty || course.level || "入门"}</dd>
+              </div>
+              <div>
+                <dt>章节</dt>
+                <dd>{chapters.length} 章</dd>
+              </div>
+              <div>
+                <dt>内容</dt>
+                <dd>{totalLessons} 节</dd>
+              </div>
+              <div>
+                <dt>学习进度</dt>
+                <dd>{progress}%</dd>
+              </div>
+            </dl>
+          </section>
+          <section>
+            <span className="studio-kicker">KNOWLEDGE PATH</span>
+            <h3>关联知识</h3>
+            <div className="course-side-nodes">
+              {knowledgeNodes.slice(0, 6).map((node, index) => (
+                <button key={node.id || node.name || index} onClick={() => setActiveTab("graph")}>
+                  {node.name || node.title}
+                  <ArrowRight size={13} />
+                </button>
+              ))}
+            </div>
+          </section>
         </aside>
       </section>
     </main>
@@ -1531,7 +2876,10 @@ function ResourceCard({ item, onUpdate }) {
     setBusyAction(`progress-${nextProgress}`);
     setStatus("");
     try {
-      await api("/learning/records", { method: "POST", body: JSON.stringify({ resourceId: item.id, progress: nextProgress }) });
+      await api("/learning/records", {
+        method: "POST",
+        body: JSON.stringify({ resourceId: item.id, progress: nextProgress })
+      });
       onUpdate(item.id, { progress: Math.max(progress, nextProgress) });
       setStatus(nextProgress >= 100 ? "已标记完成" : "已记录开始学习");
     } catch (error) {
@@ -1557,20 +2905,35 @@ function ResourceCard({ item, onUpdate }) {
 
   return (
     <article className="resource-card">
-      <div className="resource-icon"><Icon size={28} /></div>
+      <div className="resource-icon">
+        <Icon size={28} />
+      </div>
       <div>
-        <span>{item.subject} / {item.level}</span>
+        <span>
+          {item.subject} / {item.level}
+        </span>
         <h3>{item.title}</h3>
-        <p>{item.teacher || "平台教师"} / {item.minutes || 45} 分钟</p>
+        <p>
+          {item.teacher || "平台教师"} / {item.minutes || 45} 分钟
+        </p>
       </div>
       <div className="resource-meta">
-        <span><Heart size={14} /> {item.favoriteCount || 0}</span>
+        <span>
+          <Heart size={14} /> {item.favoriteCount || 0}
+        </span>
       </div>
       {item.fileUrl && item.type === "video" && (
         <CourseVideo className="resource-video" src={item.fileUrl} title={item.title} />
       )}
       {item.fileUrl && item.type !== "video" && (
-        <a className="resource-link" href={encodeURI(item.fileUrl)} target="_blank" rel="noreferrer">打开学习资料</a>
+        <a
+          className="resource-link"
+          href={encodeURI(item.fileUrl)}
+          target="_blank"
+          rel="noreferrer"
+        >
+          打开学习资料
+        </a>
       )}
       {!item.fileUrl && <p className="resource-empty">暂无上传文件</p>}
       <details className="resource-text-study">
@@ -1597,9 +2960,17 @@ function ResourceCard({ item, onUpdate }) {
               {busyAction === "progress-20" ? "记录中..." : progress > 0 ? "继续学习" : "开始学习"}
             </button>
             <button disabled={!!busyAction} onClick={() => saveProgress(100)}>
-              {busyAction === "progress-100" ? "保存中..." : progress >= 100 ? "已完成" : "完成学习"}
+              {busyAction === "progress-100"
+                ? "保存中..."
+                : progress >= 100
+                  ? "已完成"
+                  : "完成学习"}
             </button>
-            <button disabled={!!busyAction} className={item.favorited ? "active" : ""} onClick={toggleFavorite}>
+            <button
+              disabled={!!busyAction}
+              className={item.favorited ? "active" : ""}
+              onClick={toggleFavorite}
+            >
               <Heart size={15} />
               {busyAction === "favorite" ? "处理中..." : item.favorited ? "已收藏" : "收藏"}
             </button>
@@ -1610,7 +2981,7 @@ function ResourceCard({ item, onUpdate }) {
   );
 }
 
-function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubject, setPage }) {
+function KnowledgeGraph({ subject, categoryTree, setSelectedSubject, setPage }) {
   const tree = categoryTree?.length ? categoryTree : knowledgeCategories;
   const initialPath = findCategoryPath(subject, tree) || [tree[0]?.label || "软件工程"];
   const [categoryPath, setCategoryPath] = useState(initialPath);
@@ -1618,11 +2989,28 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
   const [graphData, setGraphData] = useState(() => buildCategoryGraph(initialPath, tree));
   const [graphLoading, setGraphLoading] = useState(true);
   const [graphNotice, setGraphNotice] = useState("");
+  const [stageFilter, setStageFilter] = useState("");
+  const displayedGraph = useMemo(
+    () => buildStageGraph(graphData, categoryPath, tree, stageFilter),
+    [graphData, categoryPath, tree, stageFilter]
+  );
   const [activeId, setActiveId] = useState(`${initialPath[initialPath.length - 1]}-root`);
   const [zoom, setZoom] = useState(0.92);
   const [layout, setLayout] = useState("radial");
   const [keyword, setKeyword] = useState("");
   const [openingCourse, setOpeningCourse] = useState(false);
+  const [courseTargets, setCourseTargets] = useState(null);
+  const [courseTargetNotice, setCourseTargetNotice] = useState("");
+  const courseTargetRequestRef = useRef(0);
+  const [knowledgeRecords, setKnowledgeRecords] = useState([]);
+  const [progressLoading, setProgressLoading] = useState(true);
+  const [progressError, setProgressError] = useState("");
+  const [progressReload, setProgressReload] = useState(0);
+  const progressRequestRef = useRef(0);
+  const nodeProgress = useMemo(
+    () => createKnowledgeProgress(knowledgeRecords, tree),
+    [knowledgeRecords, tree]
+  );
   const [animatedNodes, setAnimatedNodes] = useState([]);
   const stageRef = React.useRef(null);
   const simulationRef = React.useRef(new Map());
@@ -1630,7 +3018,48 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
   const suppressClickRef = React.useRef(false);
   const graphRequestRef = React.useRef(0);
 
+  const resetCourseTargets = () => {
+    courseTargetRequestRef.current += 1;
+    setOpeningCourse(false);
+    setCourseTargets(null);
+    setCourseTargetNotice("");
+  };
+
+  useEffect(
+    () => () => {
+      courseTargetRequestRef.current += 1;
+    },
+    []
+  );
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      const requestId = ++progressRequestRef.current;
+      setProgressLoading(true);
+      setProgressError("");
+      try {
+        const records = await getKnowledgeProgress();
+        if (active && requestId === progressRequestRef.current) {
+          setKnowledgeRecords(Array.isArray(records) ? records : []);
+        }
+      } catch (error) {
+        if (active && requestId === progressRequestRef.current)
+          setProgressError(error.message || "知识点进度加载失败");
+      } finally {
+        if (active && requestId === progressRequestRef.current) setProgressLoading(false);
+      }
+    };
+    load();
+    window.addEventListener("focus", load);
+    return () => {
+      active = false;
+      window.removeEventListener("focus", load);
+    };
+  }, [progressReload]);
+
   const loadNeo4jGraph = async (path) => {
+    resetCourseTargets();
     const resolvedPath = path.length ? path : [tree[0]?.label || "软件工程"];
     const target = resolvedPath[resolvedPath.length - 1];
     const requestId = ++graphRequestRef.current;
@@ -1640,7 +3069,9 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
       const params = new URLSearchParams({ subject: target, path: resolvedPath.join(" > ") });
       const data = await api(`/knowledge-graph?${params.toString()}`);
       if (requestId !== graphRequestRef.current) return;
-      const nodes = Array.isArray(data.nodes) ? data.nodes.filter((node) => node?.id && node?.label) : [];
+      const nodes = Array.isArray(data.nodes)
+        ? data.nodes.filter((node) => node?.id && node?.label)
+        : [];
       const links = Array.isArray(data.links) ? data.links : [];
       if (!nodes.length) throw new Error("Neo4j 中暂无对应知识节点");
       const apiGraph = {
@@ -1650,13 +3081,20 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
         stats: data.stats || {},
         path: resolvedPath
       };
-      const nextGraph = apiGraph.source === "neo4j"
-        ? apiGraph
-        : { ...buildCategoryGraph(resolvedPath, tree), stats: apiGraph.stats };
+      const nextGraph =
+        apiGraph.source === "neo4j"
+          ? apiGraph
+          : { ...buildCategoryGraph(resolvedPath, tree), stats: apiGraph.stats };
       setGraphData(nextGraph);
-      const root = nextGraph.nodes.find((node) => node.type === "root" || node.label === target) || nextGraph.nodes[0];
+      const root =
+        nextGraph.nodes.find((node) => node.type === "root" || node.label === target) ||
+        nextGraph.nodes[0];
       setActiveId(root.id);
-      setGraphNotice(apiGraph.source === "neo4j" ? "" : `${data.fallbackReason || "Neo4j 暂不可用"}，当前按原三级分类显示备用图谱`);
+      setGraphNotice(
+        apiGraph.source === "neo4j"
+          ? ""
+          : `${data.fallbackReason || "Neo4j 暂不可用"}，当前显示分阶段备用图谱`
+      );
     } catch (error) {
       if (requestId !== graphRequestRef.current) return;
       const fallback = buildCategoryGraph(resolvedPath, tree);
@@ -1678,15 +3116,20 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
 
   const visibleNodes = useMemo(() => {
     const text = keyword.trim().toLowerCase();
-    if (!text) return graphData.nodes;
+    if (!text) return displayedGraph.nodes;
     const matchedIds = new Set();
-    graphData.nodes.forEach((node) => {
-      if (String(node.label || "").toLowerCase().includes(text)) matchedIds.add(node.id);
+    displayedGraph.nodes.forEach((node) => {
+      if (
+        String(node.label || "")
+          .toLowerCase()
+          .includes(text)
+      )
+        matchedIds.add(node.id);
     });
     let changed = true;
     while (changed) {
       changed = false;
-      graphData.links.forEach((link) => {
+      displayedGraph.links.forEach((link) => {
         if (matchedIds.has(link.source) || matchedIds.has(link.target)) {
           if (!matchedIds.has(link.source) || !matchedIds.has(link.target)) changed = true;
           matchedIds.add(link.source);
@@ -1694,33 +3137,48 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
         }
       });
     }
-    return graphData.nodes.filter((node) => matchedIds.has(node.id));
-  }, [graphData, keyword]);
+    return displayedGraph.nodes.filter((node) => matchedIds.has(node.id));
+  }, [displayedGraph, keyword]);
 
   const visibleIds = useMemo(() => new Set(visibleNodes.map((node) => node.id)), [visibleNodes]);
   const visibleLinks = useMemo(
-    () => graphData.links.filter((link) => visibleIds.has(link.source) && visibleIds.has(link.target)),
-    [graphData.links, visibleIds]
+    () =>
+      displayedGraph.links.filter(
+        (link) => visibleIds.has(link.source) && visibleIds.has(link.target)
+      ),
+    [displayedGraph.links, visibleIds]
   );
 
   const positioned = useMemo(() => {
     const currentLabel = categoryPath[categoryPath.length - 1] || subject;
-    const rootIndex = visibleNodes.findIndex((node) => node.type === "root" || node.label === currentLabel);
-    const ordered = rootIndex > 0
-      ? [visibleNodes[rootIndex], ...visibleNodes.filter((_, index) => index !== rootIndex)]
-      : visibleNodes;
+    const rootIndex = visibleNodes.findIndex(
+      (node) => node.type === "root" || node.label === currentLabel
+    );
+    const ordered =
+      rootIndex > 0
+        ? [visibleNodes[rootIndex], ...visibleNodes.filter((_, index) => index !== rootIndex)]
+        : visibleNodes;
     const root = ordered[0] ? { ...ordered[0], x: 50, y: 50 } : null;
     const directChildIds = new Set(
       root ? visibleLinks.filter((link) => link.source === root.id).map((link) => link.target) : []
     );
-    const primary = ordered.filter((node, index) => index > 0 && (
-      directChildIds.has(node.id) || (!node.parentId && node.type !== "point" && node.type !== "knowledge")
-    ));
+    const primary = ordered.filter(
+      (node, index) =>
+        index > 0 &&
+        (directChildIds.has(node.id) ||
+          (!node.parentId && node.type !== "point" && node.type !== "knowledge"))
+    );
     const primaryIds = new Set(primary.map((node) => node.id));
     const nested = ordered.filter((node, index) => index > 0 && !primaryIds.has(node.id));
     const primarySlots = [
-      [50, 14], [78, 28], [82, 58], [62, 82],
-      [38, 82], [18, 58], [22, 28], [50, 88]
+      [50, 14],
+      [78, 28],
+      [82, 58],
+      [62, 82],
+      [38, 82],
+      [18, 58],
+      [22, 28],
+      [50, 88]
     ];
     const parentPositions = {};
     const primaryPositioned = primary.map((node, index) => {
@@ -1743,9 +3201,10 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
       const siblingIndex = siblings.findIndex((item) => item.id === node.id);
       const siblingCount = siblings.length || 1;
       const sector = Math.min((Math.PI * 2 * 0.82) / Math.max(primary.length, 1), 1.5);
-      const angle = siblingCount === 1
-        ? baseAngle
-        : baseAngle - sector / 2 + (siblingIndex / (siblingCount - 1)) * sector;
+      const angle =
+        siblingCount === 1
+          ? baseAngle
+          : baseAngle - sector / 2 + (siblingIndex / (siblingCount - 1)) * sector;
       const radiusX = layout === "layer" ? 43 : 45;
       const radiusY = layout === "layer" ? 38 : 40;
       return {
@@ -1800,7 +3259,12 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
           const dx = node.x - other.x;
           const dy = node.y - other.y;
           const distance = Math.max(Math.sqrt(dx * dx + dy * dy), 0.1);
-          const minDistance = node.type === "root" || other.type === "root" ? 17 : node.type === "point" || other.type === "point" ? 10 : 14;
+          const minDistance =
+            node.type === "root" || other.type === "root"
+              ? 17
+              : node.type === "point" || other.type === "point"
+                ? 10
+                : 14;
           if (distance < minDistance) {
             const force = (minDistance - distance) * 0.012 * dt;
             const fx = (dx / distance) * force;
@@ -1832,30 +3296,80 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
   }, []);
 
   const renderedNodes = animatedNodes.length === positioned.length ? animatedNodes : positioned;
-  const nodeById = useMemo(() => Object.fromEntries(renderedNodes.map((node) => [node.id, node])), [renderedNodes]);
-  const active = graphData.nodes.find((node) => node.id === activeId) || renderedNodes[0] || graphData.nodes[0];
-  const completion = graphData.stats?.completionRate ?? 0;
-  const achievement = graphData.stats?.achievementRate ?? 0;
+  const nodeById = useMemo(
+    () => Object.fromEntries(renderedNodes.map((node) => [node.id, node])),
+    [renderedNodes]
+  );
+  const active =
+    displayedGraph.nodes.find((node) => node.id === activeId) ||
+    renderedNodes[0] ||
+    graphData.nodes[0];
+  const countedTopics = knowledgeLeavesForPath(tree, categoryPath).filter(
+    (node) => !stageFilter || node.learningStage === stageFilter
+  );
+  const overallProgress = summarizeKnowledgeProgress(
+    countedTopics.map((node) => nodeProgress(node, categoryPath))
+  );
+  const completion = overallProgress.total
+    ? Math.min(
+        overallProgress.status === "completed" ? 100 : 99,
+        Math.round((overallProgress.completedCount * 100) / overallProgress.total)
+      )
+    : 0;
+  const achievement = overallProgress.progress;
   const currentLabel = categoryPath[categoryPath.length - 1] || subject;
-  const learnedCount = Math.max(0, active?.label === currentLabel ? 0 : 1);
-  const hasIntegratedThirdLevel = categoryPath.length === 1 && graphData.nodes.some((node) => node.type === "knowledge");
-  const totalKnowledgeCount = hasIntegratedThirdLevel
-    ? graphData.nodes.filter((node) => node.type === "knowledge").length
-    : Math.max(graphData.nodes.length - 1, 0);
+  const learnedCount = overallProgress.completedCount;
+  const hasIntegratedThirdLevel =
+    categoryPath.length === 1 && graphData.nodes.some((node) => node.type === "knowledge");
+  const totalKnowledgeCount = overallProgress.total;
+  const activeProgress = nodeProgress(active, categoryPath);
+  const activeRecord = knowledgeRecordForNode(active, categoryPath);
   const activePath = active?.path || categoryPath;
   const activeCategory = findCategoryByPath(activePath, tree);
-  const activeCanDrill = active?.type !== "root" && activePath.length < 3 && !!activeCategory?.children?.length;
-  const neo4jLevelLabel = categoryPath.length === 1 ? "二级方向" : categoryPath.length === 2 ? "三级知识点" : "当前知识点";
-  const primaryLegendLabel = graphData.source === "neo4j" ? neo4jLevelLabel : graphData.source === "category" ? "二级方向" : graphData.source === "direction" ? "三级知识点" : "详细知识点";
+  const activeCanDrill =
+    !["root", "stage"].includes(active?.type) &&
+    activePath.length < 3 &&
+    !!activeCategory?.children?.length;
+  const neo4jLevelLabel =
+    categoryPath.length === 1
+      ? "二级方向"
+      : categoryPath.length === 2
+        ? "三级知识点"
+        : "当前知识点";
+  const primaryLegendLabel =
+    graphData.source === "neo4j"
+      ? neo4jLevelLabel
+      : graphData.source === "category"
+        ? "二级方向"
+        : graphData.source === "direction"
+          ? "三级知识点"
+          : "详细知识点";
   const nodeTypeLabel = (node) => {
-    if (graphData.source === "neo4j" && node?.type === "root") return categoryPath.length === 1 ? "一级大类" : categoryPath.length === 2 ? "二级方向" : "三级知识点";
-    if (node?.type === "root") return graphData.source === "category" ? "一级大类" : graphData.source === "direction" ? "二级方向" : "三级知识点";
+    if (node?.type === "stage") return "学习阶段";
+    if (graphData.source === "neo4j" && node?.type === "root")
+      return categoryPath.length === 1
+        ? "一级大类"
+        : categoryPath.length === 2
+          ? "二级方向"
+          : "三级知识点";
+    if (node?.type === "root")
+      return graphData.source === "category"
+        ? "一级大类"
+        : graphData.source === "direction"
+          ? "二级方向"
+          : "三级知识点";
     if (node?.type === "direction") return "二级方向";
     if (node?.type === "knowledge") return "三级知识点";
     return "详细知识点";
   };
   const openNode = (node) => {
+    // Selecting another node invalidates an in-flight lookup for the previous topic.
+    resetCourseTargets();
     setActiveId(node.id);
+    if (node.type === "stage") {
+      setStageFilter(node.learningStage);
+      return;
+    }
     const nextPath = node.path || findCategoryPath(node.label, tree);
     const nextCategory = findCategoryByPath(nextPath || [], tree);
     if (nextPath && nextPath.length <= 3 && nextCategory?.children?.length) {
@@ -1866,10 +3380,6 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
       setSelectedSubject?.(nextPath[nextPath.length - 1]);
       loadNeo4jGraph(nextPath);
       return;
-    }
-    if (node.label !== currentLabel) {
-      const learningSubject = nextPath?.[1] || categoryPath[1] || currentLabel;
-      api("/learning/records", { method: "POST", body: JSON.stringify({ subject: learningSubject, knowledgeNode: node.label, progress: 10 }) }).catch(() => {});
     }
   };
   const learnNode = (node) => {
@@ -1884,60 +3394,44 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
     openNode(node);
     setOpeningCourse(true);
     const target = String(node.label || "").trim();
-    const path = Array.isArray(node.path) && node.path.length ? node.path : categoryPath;
-    const direction = path[1] || categoryPath[1] || currentLabel;
-    const terms = Array.from(new Set([target, direction, currentLabel].filter(Boolean)));
-    const matchesTerms = (course) => {
-      const text = [course.title, course.subject, course.directionName, course.categoryName, course.description]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return terms.some((term) => text.includes(String(term).toLowerCase()));
-    };
-    const courseScore = (course) => {
-      const title = String(course.title || "").toLowerCase();
-      const subjectName = String(course.subject || "").toLowerCase();
-      const directionName = String(course.directionName || "").toLowerCase();
-      const targetText = target.toLowerCase();
-      let score = 0;
-      if (title.includes(targetText)) score += 30;
-      if (subjectName === targetText || directionName === targetText) score += 24;
-      if (subjectName.includes(targetText) || directionName.includes(targetText)) score += 16;
-      terms.slice(1).forEach((term) => {
-        const value = String(term).toLowerCase();
-        if (title.includes(value)) score += 8;
-        if (subjectName.includes(value) || directionName.includes(value)) score += 6;
-      });
-      return score + Number(course.learnerCount || 0) / 10000;
-    };
-
+    const path =
+      Array.isArray(node.path) && node.path.length >= 2 ? node.path : categoryPath;
+    const requestId = courseTargetRequestRef.current;
     try {
-      const directResult = await getCourses({ keyword: target, pageNum: 1, pageSize: 12 });
-      let candidates = [...(directResult.list || [])];
-      if (!candidates.length && direction && direction !== target) {
-        const directionResult = await getCourses({ keyword: direction, pageNum: 1, pageSize: 12 });
-        candidates = directionResult.list || [];
-      }
-      candidates.push(...resources.filter(matchesTerms));
-      const uniqueCourses = Array.from(new Map(candidates.map((course) => [Number(course.id), course])).values())
-        .filter((course) => Number(course.id) > 0)
-        .sort((left, right) => courseScore(right) - courseScore(left));
-      if (uniqueCourses.length) {
-        setPage?.("course", { courseId: uniqueCourses[0].id });
+      if (!path[0] || !path[1]) {
+        setCourseTargetNotice("这个知识点还没有完整的分类信息，请先选择学习方向。");
         return;
       }
-      setSelectedSubject?.(direction || target);
-      setPage?.("catalog");
-    } catch {
-      const fallback = resources.filter(matchesTerms).sort((left, right) => courseScore(right) - courseScore(left))[0];
-      if (fallback?.id) {
-        setPage?.("course", { courseId: fallback.id });
-      } else {
-        setSelectedSubject?.(direction || target);
-        setPage?.("catalog");
+      const data = await getKnowledgeCourseTargets({
+        category: path[0],
+        direction: path[1],
+        title: target
+      });
+      if (requestId !== courseTargetRequestRef.current) return;
+      const matches = (Array.isArray(data) ? data : []).filter(
+        (item) =>
+          Number(item.courseId) > 0 &&
+          Number(item.lessonId) > 0 &&
+          (item.lessonTitle === target || item.topicTitle === target)
+      );
+      if (matches.length === 1) {
+        setPage?.("learn", {
+          courseId: matches[0].courseId,
+          lessonId: matches[0].lessonId
+        });
+        return;
       }
+      setCourseTargets({ nodeId: node.id, items: matches });
+      setCourseTargetNotice(
+        matches.length
+          ? "以下课时覆盖这个知识点，请选择要学习的课程与课时。"
+          : "这个知识点还没有关联到已发布的课程课时，可先查看同方向的其他课程。"
+      );
+    } catch (error) {
+      if (requestId === courseTargetRequestRef.current)
+        setCourseTargetNotice(error?.message || "课时关联暂时无法加载，请重试。");
     } finally {
-      setOpeningCourse(false);
+      if (requestId === courseTargetRequestRef.current) setOpeningCourse(false);
     }
   };
   const confirmCategoryPath = () => {
@@ -1970,6 +3464,7 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
     }
   };
   const startDragNode = (event, node) => {
+    resetCourseTargets();
     draggingRef.current = { id: node.id, startX: event.clientX, startY: event.clientY };
     suppressClickRef.current = false;
     setActiveId(node.id);
@@ -1986,33 +3481,92 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
         <div className="graph-toolbar-title">
           <span className="eyebrow">Neo4j 知识图谱</span>
           <h2>{currentLabel}</h2>
-          <div className={`graph-source-status ${graphLoading || graphData.source === "neo4j" ? "connected" : "fallback"}`}>
+          <div
+            className={`graph-source-status ${graphLoading || graphData.source === "neo4j" ? "connected" : "fallback"}`}
+          >
             <i />
-            {graphLoading ? "正在连接 Neo4j" : graphData.source === "neo4j" ? "Neo4j 实时数据" : "备用数据"}
+            {graphLoading
+              ? "正在连接 Neo4j"
+              : graphData.source === "neo4j"
+                ? "Neo4j 实时数据"
+                : "备用数据"}
           </div>
         </div>
         <div className="graph-toolbar-actions">
           <div className="graph-filter-confirm">
-            <CategoryCascader tree={tree} value={draftCategoryPath} onChange={setDraftCategoryPath} />
-            <button type="button" className="graph-confirm-button" onClick={confirmCategoryPath}>确认查看<ArrowRight size={15} /></button>
+            <CategoryCascader
+              tree={tree}
+              value={draftCategoryPath}
+              onChange={setDraftCategoryPath}
+            />
+            <button type="button" className="graph-confirm-button" onClick={confirmCategoryPath}>
+              确认查看
+              <ArrowRight size={15} />
+            </button>
             <small>只看一级大类时，方向保留“全部方向”即可</small>
           </div>
           <label className="graph-search">
             <Search size={17} />
-            <input placeholder="搜索知识点" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
+            <input
+              placeholder="搜索知识点"
+              value={keyword}
+              onChange={(event) => {
+                resetCourseTargets();
+                setKeyword(event.target.value);
+              }}
+            />
           </label>
-          <button onClick={() => setLayout((value) => value === "radial" ? "layer" : "radial")}>布局切换</button>
-          <span>已点亮 {learnedCount}/{totalKnowledgeCount}</span>
+          <button onClick={() => setLayout((value) => (value === "radial" ? "layer" : "radial"))}>
+            布局切换
+          </button>
+          <span>
+            {progressLoading
+              ? "正在加载进度…"
+              : progressError
+                ? "进度暂不可用"
+                : `已完成 ${learnedCount}/${totalKnowledgeCount}`}
+          </span>
         </div>
       </div>
       <aside className="graph-stats">
-        <div><BookOpen size={24} /><span>知识点总数</span><strong>{totalKnowledgeCount}</strong></div>
-        <div><BarChart3 size={24} /><span>学习完成率</span><strong>{completion}%</strong></div>
-        <div><CheckCircle2 size={24} /><span>学习达成率</span><strong>{achievement}%</strong></div>
+        <div>
+          <BookOpen size={24} />
+          <span>知识点总数</span>
+          <strong>{totalKnowledgeCount}</strong>
+        </div>
+        <div>
+          <BarChart3 size={24} />
+          <span>学习完成率</span>
+          <strong>{progressLoading || progressError ? "—" : `${completion}%`}</strong>
+        </div>
+        <div>
+          <CheckCircle2 size={24} />
+          <span>平均学习进度</span>
+          <strong>{progressLoading || progressError ? "—" : `${achievement}%`}</strong>
+        </div>
       </aside>
+      <div className="graph-stage-filter" role="group" aria-label="图谱学习阶段">
+        {[{ code: "", label: "全部阶段" }, ...LEARNING_STAGES].map((stage) => (
+          <button
+            key={stage.code}
+            aria-pressed={stageFilter === stage.code}
+            onClick={() => {
+              resetCourseTargets();
+              setStageFilter(stage.code);
+            }}
+          >
+            {stage.label}
+          </button>
+        ))}
+        <span>进入学习方向，可查看三个阶段的知识点分组</span>
+      </div>
       <section className="graph-canvas">
-        {graphLoading && <div className="graph-data-message loading">正在从 Neo4j 加载知识节点与关系...</div>}
-        {!graphLoading && graphNotice && <div className="graph-data-message warning">{graphNotice}</div>}
+        {graphLoading && (
+          <div className="graph-data-message loading">正在从 Neo4j 加载知识节点与关系...</div>
+        )}
+        {!graphLoading && graphNotice && (
+          <div className="graph-data-message warning">{graphNotice}</div>
+        )}
         <div
           className="graph-stage"
           ref={stageRef}
@@ -2026,51 +3580,186 @@ function KnowledgeGraph({ subject, categoryTree, resources = [], setSelectedSubj
               const source = nodeById[link.source];
               const target = nodeById[link.target];
               if (!source || !target) return null;
-              return <line key={`${link.source}-${link.target}-${index}`} x1={source.x} y1={source.y} x2={target.x} y2={target.y} />;
+              const completed = nodeProgress(target, categoryPath).status === "completed";
+              return (
+                <line
+                  className={completed ? "knowledge-link-completed" : ""}
+                  key={`${link.source}-${link.target}-${index}`}
+                  x1={source.x}
+                  y1={source.y}
+                  x2={target.x}
+                  y2={target.y}
+                />
+              );
             })}
-            {!visibleLinks.length && renderedNodes.slice(1).map((node) => <line key={node.id} x1="50" y1="50" x2={node.x} y2={node.y} />)}
+            {!visibleLinks.length &&
+              renderedNodes
+                .slice(1)
+                .map((node) => <line key={node.id} x1="50" y1="50" x2={node.x} y2={node.y} />)}
           </svg>
           {renderedNodes.map((node, index) => (
             <button
               key={node.id}
-              className={`${index === 0 ? "center-node" : "graph-node"} ${node.type === "direction" ? "track-node" : ""} ${node.type === "knowledge" ? "course-node" : ""} ${node.type === "point" ? "point-node" : ""} ${hasIntegratedThirdLevel && node.type === "knowledge" ? "integrated-third-node" : ""} ${active?.id === node.id ? "active" : ""}`}
+              className={`${index === 0 ? "center-node" : "graph-node"} ${node.type === "stage" ? "stage-node" : ""} ${node.type === "direction" ? "track-node" : ""} ${node.type === "knowledge" ? "course-node" : ""} ${node.type === "point" ? "point-node" : ""} ${hasIntegratedThirdLevel && node.type === "knowledge" ? "integrated-third-node" : ""} ${active?.id === node.id ? "active" : ""} learning-${nodeProgress(node, categoryPath).status}`}
+              data-learning-status={nodeProgress(node, categoryPath).status}
+              data-knowledge-subject={knowledgeRecordForNode(node, categoryPath).subject}
+              data-knowledge-name={knowledgeRecordForNode(node, categoryPath).knowledgeNode}
+              title={`${node.label} · ${knowledgeStatusLabel(nodeProgress(node, categoryPath).status)} ${nodeProgress(node, categoryPath).progress}%`}
+              aria-label={`${node.label}，${knowledgeStatusLabel(nodeProgress(node, categoryPath).status)}`}
               style={{ left: `${node.x}%`, top: `${node.y}%` }}
               onPointerDown={(event) => startDragNode(event, node)}
               onClick={() => learnNode(node)}
             >
               {node.label}
+              {nodeProgress(node, categoryPath).status === "completed" && (
+                <CheckCircle2 className="graph-completion-mark" aria-hidden="true" size={16} />
+              )}
               {index === 0 && <span>{nodeTypeLabel(node)}</span>}
             </button>
           ))}
         </div>
         <div className="graph-legend">
-          <span><i className="root-dot" /> 根节点</span>
-          <span><i className="unit-dot" /> {primaryLegendLabel}</span>
-          <span><i className="point-dot" /> {hasIntegratedThirdLevel ? "三级知识点（已整合）" : "点击节点继续下钻"}</span>
+          <span>
+            <i className="root-dot" /> 根节点
+          </span>
+          <span>
+            <i className="unit-dot" /> {primaryLegendLabel}
+          </span>
+          <span>
+            <i className="point-dot" />{" "}
+            {hasIntegratedThirdLevel ? "三级知识点（已整合）" : "点击节点继续下钻"}
+          </span>
+          <span>
+            <i className="knowledge-not-started-dot" /> 未开始
+          </span>
+          <span>
+            <i className="knowledge-in-progress-dot" /> 学习中
+          </span>
+          <span>
+            <i className="knowledge-completed-dot" /> 已完成
+          </span>
         </div>
         <div className="graph-tools">
-          <button title="缩小" onClick={() => setZoom((value) => Math.max(value - 0.1, 0.45))}><ZoomOut size={18} /></button>
+          <button title="缩小" onClick={() => setZoom((value) => Math.max(value - 0.1, 0.45))}>
+            <ZoomOut size={18} />
+          </button>
           <span className="graph-zoom-value">{Math.round(zoom * 100)}%</span>
-          <button title="放大" onClick={() => setZoom((value) => Math.min(value + 0.1, 1.3))}><ZoomIn size={18} /></button>
-          <button title="重置" onClick={() => { setZoom(0.92); setKeyword(""); }}><RefreshCcw size={18} /></button>
-          <button title="全屏" onClick={openFullscreen}><Maximize size={18} /></button>
+          <button title="放大" onClick={() => setZoom((value) => Math.min(value + 0.1, 1.3))}>
+            <ZoomIn size={18} />
+          </button>
+          <button
+            title="重置"
+            onClick={() => {
+              setZoom(0.92);
+              setKeyword("");
+            }}
+          >
+            <RefreshCcw size={18} />
+          </button>
+          <button title="全屏" onClick={openFullscreen}>
+            <Maximize size={18} />
+          </button>
         </div>
       </section>
       <aside className="node-detail">
         <span className="eyebrow">当前节点</span>
         <h3>{active?.label || subject}</h3>
-        <p>{active?.description || "系统会记录你的知识点点击与学习行为，后续用于路径规划、薄弱点分析和课程推荐。"}</p>
+        <p>
+          {active?.description ||
+            "颜色根据课程中的实际学习进度更新，查看图谱节点不会增加学习进度。"}
+        </p>
         <div className="node-detail-meta">
-          <span>{graphData.source === "neo4j" ? "Neo4j 图谱" : graphData.source === "mysql" ? "MySQL 备用图谱" : "本地备用图谱"}</span>
+          <span>
+            {graphData.source === "neo4j"
+              ? "Neo4j 图谱"
+              : graphData.source === "mysql"
+                ? "MySQL 备用图谱"
+                : "本地备用图谱"}
+          </span>
           <span>{nodeTypeLabel(active)}</span>
         </div>
+        <div
+          className={`knowledge-progress-summary learning-${activeProgress.status}`}
+          role="status"
+        >
+          {activeProgress.status === "completed" && <CheckCircle2 size={18} aria-hidden="true" />}
+          <strong>
+            {progressLoading ? "正在加载进度…" : knowledgeStatusLabel(activeProgress.status)}
+          </strong>
+          <span>
+            {activeRecord.isKnowledgePoint
+              ? `${activeProgress.progress}%`
+              : `${activeProgress.completedCount}/${activeProgress.total} 个知识点完成`}
+          </span>
+        </div>
+        <p className="knowledge-progress-hint">进入课程学习后自动更新，达到 100% 时标绿。</p>
+        {progressError && (
+          <div className="inline-error-state" role="alert">
+            {progressError}
+            <button onClick={() => setProgressReload((value) => value + 1)}>重新加载进度</button>
+          </div>
+        )}
         <button
           className="primary-btn"
           disabled={openingCourse}
-          onClick={() => active && (activeCanDrill ? openNode(active) : openKnowledgeCourse(active))}
+          onClick={() =>
+            active &&
+            (active.type === "stage"
+              ? setPage("catalog", {
+                  learningStage: active.learningStage,
+                  subject: categoryPath[1]
+                })
+              : activeCanDrill
+                ? openNode(active)
+                : openKnowledgeCourse(active))
+          }
         >
-          {activeCanDrill ? `进入 ${active?.label} 图谱` : openingCourse ? "正在匹配课程…" : "学习该知识点"}
+          {active?.type === "stage"
+            ? "查看该阶段课程"
+            : activeCanDrill
+              ? `进入 ${active?.label} 图谱`
+              : openingCourse
+                ? "正在查找对应课时…"
+                : "学习该知识点"}
         </button>
+        {courseTargetNotice && (
+          <div className="knowledge-course-targets" aria-live="polite">
+            <p role="status">{courseTargetNotice}</p>
+            {courseTargets?.nodeId === active?.id && courseTargets.items.length > 0 && (
+              <ul aria-label="包含当前知识点的课程">
+                {courseTargets.items.map((item) => (
+                  <li key={`${item.courseId}-${item.lessonId}`}>
+                    <span>所属课程：{item.courseTitle}</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPage("learn", { courseId: item.courseId, lessonId: item.lessonId })
+                      }
+                    >
+                      <BookOpen size={16} aria-hidden="true" />
+                      <strong>{item.lessonTitle}</strong>
+                      <ArrowRight size={16} aria-hidden="true" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {courseTargets?.nodeId === active?.id && courseTargets.items.length === 0 && (
+              <button
+                className="knowledge-direction-courses"
+                type="button"
+                onClick={() => {
+                  const path = active?.path?.length >= 2 ? active.path : categoryPath;
+                  setSelectedSubject?.(path[1] || subject);
+                  setPage("catalog");
+                }}
+              >
+                查看方向课程
+                <ArrowRight size={16} aria-hidden="true" />
+              </button>
+            )}
+          </div>
+        )}
       </aside>
     </main>
   );
@@ -2130,7 +3819,10 @@ function MyLearningPage({ setPage, setSelectedSubject }) {
     setCompletingResourceId(resourceId);
     setLearningError("");
     try {
-      await api("/learning/records", { method: "POST", body: JSON.stringify({ resourceId, progress: 100 }) });
+      await api("/learning/records", {
+        method: "POST",
+        body: JSON.stringify({ resourceId, progress: 100 })
+      });
       await loadLearning();
     } catch (error) {
       setLearningError(error?.message || "学习进度更新失败，请稍后重试");
@@ -2158,7 +3850,8 @@ function MyLearningPage({ setPage, setSelectedSubject }) {
   );
   const learnedNodeCount = Number(summary.learnedNodeCount || summary.learnednodecount || 0);
   const favoriteCount = Number(summary.favoriteCount || summary.favoritecount || 0);
-  const lastActiveAt = summary.lastActiveAt || summary.lastactiveat || learning.resume?.lastStudiedAt;
+  const lastActiveAt =
+    summary.lastActiveAt || summary.lastactiveat || learning.resume?.lastStudiedAt;
   const showEmptyStates = !loading && !learningError;
 
   return (
@@ -2169,9 +3862,17 @@ function MyLearningPage({ setPage, setSelectedSubject }) {
           <h2>学习进度与个人记录</h2>
           <p>汇总已学资源、知识点点击、收藏课程和最近学习动态。</p>
         </div>
-        <button className="primary-btn" onClick={() => learning.resume
-          ? setPage("learn", { courseId: learning.resume.courseId, lessonId: learning.resume.lessonId })
-          : setPage("home")}>
+        <button
+          className="primary-btn"
+          onClick={() =>
+            learning.resume
+              ? setPage("learn", {
+                  courseId: learning.resume.courseId,
+                  lessonId: learning.resume.lessonId
+                })
+              : setPage("home")
+          }
+        >
           <BookOpen size={18} />
           {learning.resume ? `继续：${learning.resume.lessonTitle}` : "选择课程开始学习"}
         </button>
@@ -2180,7 +3881,9 @@ function MyLearningPage({ setPage, setSelectedSubject }) {
       {learningError && (
         <div className="inline-error-state" role="alert">
           <span>{learningError}</span>
-          <button type="button" onClick={loadLearning} disabled={loading}>{loading ? "重试中..." : "重新加载"}</button>
+          <button type="button" onClick={loadLearning} disabled={loading}>
+            {loading ? "重试中..." : "重新加载"}
+          </button>
         </div>
       )}
 
@@ -2203,15 +3906,24 @@ function MyLearningPage({ setPage, setSelectedSubject }) {
             </div>
             <div className="subject-progress-list">
               {loading && <p className="muted">正在加载学习进度...</p>}
-              {showEmptyStates && !learning.subjectProgress.length && <EmptyLearningState setPage={setPage} />}
+              {showEmptyStates && !learning.subjectProgress.length && (
+                <EmptyLearningState setPage={setPage} />
+              )}
               {learning.subjectProgress.map((item) => {
                 const subject = item.subject || "未分类";
                 const progress = Number(item.avgProgress || item.avgprogress || 0);
                 return (
-                  <button className="subject-progress-row" key={subject} onClick={() => openGraph(subject)}>
+                  <button
+                    className="subject-progress-row"
+                    key={subject}
+                    onClick={() => openGraph(subject)}
+                  >
                     <div>
                       <strong>{subject}</strong>
-                      <span>{item.recordCount || item.recordcount || 0} 条记录 / 完成 {item.completedCount || item.completedcount || 0}</span>
+                      <span>
+                        {item.recordCount || item.recordcount || 0} 条记录 / 完成{" "}
+                        {item.completedCount || item.completedcount || 0}
+                      </span>
                     </div>
                     <ProgressBar value={progress} />
                   </button>
@@ -2230,15 +3942,30 @@ function MyLearningPage({ setPage, setSelectedSubject }) {
             </div>
             <div className="learning-resource-list">
               {learning.resume && !learning.resourceRecords.length && (
-                <article className="learning-resource-row" key={`lesson-progress-${learning.resume.courseId}`}>
-                  <div className="learning-resource-icon"><PlayCircle size={22} /></div>
+                <article
+                  className="learning-resource-row"
+                  key={`lesson-progress-${learning.resume.courseId}`}
+                >
+                  <div className="learning-resource-icon">
+                    <PlayCircle size={22} />
+                  </div>
                   <div>
                     <span>最近学习 / 课时进度</span>
                     <strong>{learning.resume.courseTitle}</strong>
-                    <small>{learning.resume.lessonTitle} / {formatLearningDate(learning.resume.lastStudiedAt)}</small>
+                    <small>
+                      {learning.resume.lessonTitle} /{" "}
+                      {formatLearningDate(learning.resume.lastStudiedAt)}
+                    </small>
                   </div>
                   <ProgressBar value={resumeCourseProgress} />
-                  <button onClick={() => setPage("learn", { courseId: learning.resume.courseId, lessonId: learning.resume.lessonId })}>
+                  <button
+                    onClick={() =>
+                      setPage("learn", {
+                        courseId: learning.resume.courseId,
+                        lessonId: learning.resume.lessonId
+                      })
+                    }
+                  >
                     继续学习
                   </button>
                 </article>
@@ -2252,18 +3979,28 @@ function MyLearningPage({ setPage, setSelectedSubject }) {
                       {item.type === "video" ? <PlayCircle size={22} /> : <FileText size={22} />}
                     </div>
                     <div>
-                      <span>{item.subject} / {item.level}</span>
+                      <span>
+                        {item.subject} / {item.level}
+                      </span>
                       <strong>{item.title}</strong>
-                      <small>{item.teacher || "平台教师"} / {formatLearningDate(item.lastLearnedAt || item.lastlearnedat)}</small>
+                      <small>
+                        {item.teacher || "平台教师"} /{" "}
+                        {formatLearningDate(item.lastLearnedAt || item.lastlearnedat)}
+                      </small>
                     </div>
                     <ProgressBar value={progress} />
-                    <button disabled={Boolean(completingResourceId)} onClick={() => completeResource(resourceId)}>
+                    <button
+                      disabled={Boolean(completingResourceId)}
+                      onClick={() => completeResource(resourceId)}
+                    >
                       {completingResourceId === resourceId ? "更新中..." : "标记完成"}
                     </button>
                   </article>
                 );
               })}
-              {showEmptyStates && !learning.resourceRecords.length && !learning.resume && <p className="muted">暂无已学资源，打开课程课时后会记录在这里。</p>}
+              {showEmptyStates && !learning.resourceRecords.length && !learning.resume && (
+                <p className="muted">暂无已学资源，打开课程课时后会记录在这里。</p>
+              )}
             </div>
           </section>
         </div>
@@ -2280,15 +4017,23 @@ function MyLearningPage({ setPage, setSelectedSubject }) {
             <div className="activity-list">
               {learning.recentRecords.map((item) => (
                 <div className="activity-item" key={item.id}>
-                  <i className={item.recordType === "resource" ? "activity-resource" : "activity-node"} />
+                  <i
+                    className={
+                      item.recordType === "resource" ? "activity-resource" : "activity-node"
+                    }
+                  />
                   <div>
                     <strong>{item.title}</strong>
-                    <span>{item.subject} / 进度 {item.progress || 0}%</span>
+                    <span>
+                      {item.subject} / 进度 {item.progress || 0}%
+                    </span>
                     <small>{formatLearningDate(item.createdAt || item.createdat)}</small>
                   </div>
                 </div>
               ))}
-              {showEmptyStates && !learning.recentRecords.length && <p className="muted">学习课程或点击知识点后，这里会显示时间线。</p>}
+              {showEmptyStates && !learning.recentRecords.length && (
+                <p className="muted">学习课程或点击知识点后，这里会显示时间线。</p>
+              )}
             </div>
           </section>
 
@@ -2304,10 +4049,14 @@ function MyLearningPage({ setPage, setSelectedSubject }) {
               {learning.nodeRecords.map((item) => (
                 <button key={item.id} onClick={() => openGraph(item.subject)}>
                   <strong>{item.knowledgeNode || item.knowledgenode}</strong>
-                  <span>{item.subject} / {item.progress || 0}%</span>
+                  <span>
+                    {item.subject} / {item.progress || 0}%
+                  </span>
                 </button>
               ))}
-              {showEmptyStates && !learning.nodeRecords.length && <p className="muted">还没有知识点学习记录。</p>}
+              {showEmptyStates && !learning.nodeRecords.length && (
+                <p className="muted">还没有知识点学习记录。</p>
+              )}
             </div>
           </section>
 
@@ -2321,15 +4070,25 @@ function MyLearningPage({ setPage, setSelectedSubject }) {
             </div>
             <div className="favorite-mini-list">
               {learning.favorites.map((item) => (
-                <button type="button" className="favorite-mini-row" key={item.id} onClick={() => setPage("course", { courseId: item.id })} aria-label={`查看收藏课程：${item.title}`}>
+                <button
+                  type="button"
+                  className="favorite-mini-row"
+                  key={item.id}
+                  onClick={() => setPage("course", { courseId: item.id })}
+                  aria-label={`查看收藏课程：${item.title}`}
+                >
                   <Heart size={16} />
                   <div>
                     <strong>{item.title}</strong>
-                    <span>{item.subject} / {item.type === "video" ? "视频" : "资料"}</span>
+                    <span>
+                      {item.subject} / {item.type === "video" ? "视频" : "资料"}
+                    </span>
                   </div>
                 </button>
               ))}
-              {showEmptyStates && !learning.favorites.length && <p className="muted">还没有收藏资源。</p>}
+              {showEmptyStates && !learning.favorites.length && (
+                <p className="muted">还没有收藏资源。</p>
+              )}
             </div>
           </section>
         </aside>
@@ -2369,23 +4128,44 @@ function formatLearningDate(value) {
       minute: "2-digit",
       second: "2-digit",
       hour12: false
-    }).format(date).replaceAll("/", "-");
+    })
+      .format(date)
+      .replaceAll("/", "-");
   }
   return String(value).replace("T", " ").slice(0, 19);
 }
 
-function AgentsPage({ preferences, setPage }) {
-  const [outputs, setOutputs] = useState({});
+function AgentsPage({ user, preferences, setPage }) {
+  const { outputs, busyAgents, reportsVersion, runAnalysis } = useAgentAnalysis(user);
   const [reports, setReports] = useState([]);
-  const [busyAgents, setBusyAgents] = useState({});
   const [reportsLoading, setReportsLoading] = useState(true);
   const [reportsError, setReportsError] = useState("");
   const [reportAction, setReportAction] = useState("");
   const agents = [
-    { id: "guide", title: "课程诊断", icon: Wand2, desc: "分析学习行为，推荐需要补强的课程与知识点。" },
-    { id: "analysis", title: "学习分析报告", icon: FileText, desc: "生成 Word 学习分析报告，指出问题和改进建议。" },
-    { id: "path", title: "学习路径分析", icon: Route, desc: "结合掌握程度生成适合当前阶段的学习路径。" },
-    { id: "recommend", title: "学习资源分析", icon: Sparkles, desc: "根据学习记录和偏好推荐视频、资料与课程。" }
+    {
+      id: "guide",
+      title: "课程诊断",
+      icon: Wand2,
+      desc: "分析学习行为，推荐需要补强的课程与知识点。"
+    },
+    {
+      id: "analysis",
+      title: "学习分析报告",
+      icon: FileText,
+      desc: "生成 Word 学习分析报告，指出问题和改进建议。"
+    },
+    {
+      id: "path",
+      title: "学习路径分析",
+      icon: Route,
+      desc: "结合掌握程度生成适合当前阶段的学习路径。"
+    },
+    {
+      id: "recommend",
+      title: "学习资源分析",
+      icon: Sparkles,
+      desc: "根据学习记录和偏好推荐视频、资料与课程。"
+    }
   ];
   const loadReports = async () => {
     setReportsLoading(true);
@@ -2399,38 +4179,14 @@ function AgentsPage({ preferences, setPage }) {
       setReportsLoading(false);
     }
   };
-  const runAgent = async (id) => {
-    if (busyAgents[id]) return;
-    setBusyAgents((prev) => ({ ...prev, [id]: true }));
-    setOutputs((prev) => ({ ...prev, [id]: null }));
-    try {
-      const data = await api(`/agents/${id}`, {
+  const runAgent = (id) =>
+    runAnalysis(id, () =>
+      api(`/agents/${id}`, {
         method: "POST",
         body: JSON.stringify({ preferences }),
         timeout: 150000
-      });
-      setOutputs((prev) => ({
-        ...prev,
-        [id]: {
-          text: data?.result || (data?.downloadUrl ? "学习分析报告已生成" : "分析已完成"),
-          error: false,
-          model: data?.model || "",
-          tools: Array.isArray(data?.toolsUsed) ? data.toolsUsed : [],
-          sources: Array.isArray(data?.sources) ? data.sources : [],
-          graphUsed: Boolean(data?.graphUsed),
-          learningPath: data?.learningPath || null
-        }
-      }));
-      if (id === "analysis") await loadReports();
-    } catch (error) {
-      setOutputs((prev) => ({
-        ...prev,
-        [id]: { text: `分析失败：${error?.message || "请稍后重试"}`, error: true }
-      }));
-    } finally {
-      setBusyAgents((prev) => ({ ...prev, [id]: false }));
-    }
-  };
+      })
+    );
   const deleteReport = async (id) => {
     if (!id || reportAction) return;
     setReportAction(`delete-${id}`);
@@ -2450,7 +4206,12 @@ function AgentsPage({ preferences, setPage }) {
     setReportAction(`download-${report.id}`);
     setReportsError("");
     try {
-      const rawUrl = report.downloadUrl || report.downloadurl || report.reportUrl || report.reporturl || `/agents/reports/${report.id}/download`;
+      const rawUrl =
+        report.downloadUrl ||
+        report.downloadurl ||
+        report.reportUrl ||
+        report.reporturl ||
+        `/agents/reports/${report.id}/download`;
       const downloadUrl = rawUrl.startsWith("/api/") ? rawUrl.slice(4) : rawUrl;
       if (!downloadUrl.startsWith("/agents/reports/")) throw new Error("报告下载地址无效");
       const blob = await api(downloadUrl, { responseType: "blob" });
@@ -2474,39 +4235,80 @@ function AgentsPage({ preferences, setPage }) {
   };
   useEffect(() => {
     loadReports();
-  }, []);
+  }, [reportsVersion]);
   return (
     <main className="content">
       <div className="page-title compact">
         <span className="eyebrow">学习分析</span>
-        <h2>把学习记录转化为下一步行动</h2>
+        <h1>把学习记录转化为下一步行动</h1>
       </div>
       <section className="agent-grid">
         {agents.map((agent) => {
           const Icon = agent.icon;
           return (
-            <article className="agent-card" key={agent.id}>
+            <article
+              className="agent-card"
+              key={agent.id}
+              aria-busy={Boolean(busyAgents[agent.id])}
+            >
               <Icon size={28} />
               <h3>{agent.title}</h3>
               <p>{agent.desc}</p>
               <button disabled={Boolean(busyAgents[agent.id])} onClick={() => runAgent(agent.id)}>
                 {busyAgents[agent.id] ? "分析中..." : "开始分析"}
               </button>
-              {outputs[agent.id] && (
-                <div className={`agent-output${outputs[agent.id].error ? " error" : ""}`} role={outputs[agent.id].error ? "alert" : undefined}>
-                  {outputs[agent.id].text}
-                  {outputs[agent.id].learningPath && <div className="agent-path-action"><p>{outputs[agent.id].learningPath.neo4jSynced ? "个人路径已生成并写入 Neo4j。" : "个人路径已保存，Neo4j 恢复后可同步。"}</p><button onClick={() => setPage("graph", { pathId: outputs[agent.id].learningPath.pathId })}>查看我的路径图谱<GitBranch size={16} /></button></div>}
-                  {!outputs[agent.id].error && outputs[agent.id].model && (
-                    <small>由 {outputs[agent.id].model} 生成 · 调用 {outputs[agent.id].tools.length} 个工具</small>
-                  )}
-                  {!outputs[agent.id].error && outputs[agent.id].tools.length > 0 && (
-                    <div className="agent-evidence">
-                      <span>工具：{outputs[agent.id].tools.map(agentToolLabel).join("、")}</span>
-                      <span>依据：{outputs[agent.id].sources.length} 项{outputs[agent.id].graphUsed ? "（含知识图谱）" : ""}</span>
-                    </div>
-                  )}
-                </div>
-              )}
+              <div className="agent-response-slot">
+                {busyAgents[agent.id] && (
+                  <GenerationStatus
+                    className="analysis-thinking"
+                    label="正在整理学习分析"
+                    detail="分析正在进行，可切换其他页面，返回后查看结果。"
+                  />
+                )}
+                {!busyAgents[agent.id] && !outputs[agent.id] && (
+                  <p className="agent-response-empty">分析结果将显示在这里</p>
+                )}
+                {!busyAgents[agent.id] && outputs[agent.id] && (
+                  <div
+                    className={`agent-output${outputs[agent.id].error ? " error" : ""}`}
+                    role={outputs[agent.id].error ? "alert" : undefined}
+                  >
+                    {outputs[agent.id].text}
+                    {outputs[agent.id].learningPath && (
+                      <div className="agent-path-action">
+                        <p>
+                          {outputs[agent.id].learningPath.neo4jSynced
+                            ? "个人路径已生成并写入 Neo4j。"
+                            : "个人路径已保存，Neo4j 恢复后可同步。"}
+                        </p>
+                        <button
+                          onClick={() =>
+                            setPage("graph", { pathId: outputs[agent.id].learningPath.pathId })
+                          }
+                        >
+                          查看我的路径图谱
+                          <GitBranch size={16} />
+                        </button>
+                      </div>
+                    )}
+                    {!outputs[agent.id].error && outputs[agent.id].model && (
+                      <small>
+                        由 {outputs[agent.id].model} 生成 · 调用 {outputs[agent.id].tools.length}{" "}
+                        个工具
+                      </small>
+                    )}
+                    {!outputs[agent.id].error && outputs[agent.id].tools.length > 0 && (
+                      <div className="agent-evidence">
+                        <span>工具：{outputs[agent.id].tools.map(agentToolLabel).join("、")}</span>
+                        <span>
+                          依据：{outputs[agent.id].sources.length} 项
+                          {outputs[agent.id].graphUsed ? "（含知识图谱）" : ""}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </article>
           );
         })}
@@ -2523,7 +4325,9 @@ function AgentsPage({ preferences, setPage }) {
           {reportsError && (
             <div className="inline-error-state" role="alert">
               <span>{reportsError}</span>
-              <button type="button" onClick={loadReports} disabled={reportsLoading}>{reportsLoading ? "重试中..." : "重新加载"}</button>
+              <button type="button" onClick={loadReports} disabled={reportsLoading}>
+                {reportsLoading ? "重试中..." : "重新加载"}
+              </button>
             </div>
           )}
           {reportsLoading && <p className="muted">正在加载报告历史...</p>}
@@ -2543,7 +4347,9 @@ function AgentsPage({ preferences, setPage }) {
               </div>
             </div>
           ))}
-          {!reportsLoading && !reportsError && !reports.length && <p className="muted">暂无报告，运行“学习分析报告”后会出现在这里。</p>}
+          {!reportsLoading && !reportsError && !reports.length && (
+            <p className="muted">暂无报告，运行“学习分析报告”后会出现在这里。</p>
+          )}
         </div>
       </section>
     </main>
@@ -2561,7 +4367,13 @@ function agentToolLabel(tool) {
 }
 
 function MessagesPage({ user, setPage }) {
-  const [data, setData] = useState({ contacts: [], messages: [], courseReplies: [], teachingFeedback: [], unreadCount: 0 });
+  const [data, setData] = useState({
+    contacts: [],
+    messages: [],
+    courseReplies: [],
+    teachingFeedback: [],
+    unreadCount: 0
+  });
   const [selectedContactId, setSelectedContactId] = useState(null);
   const [activeView, setActiveView] = useState("chat");
   const [searchText, setSearchText] = useState("");
@@ -2585,7 +4397,8 @@ function MessagesPage({ user, setPage }) {
       };
       setData(nextData);
       setSelectedContactId((current) => {
-        if (current && nextData.contacts.some((contact) => Number(contact.id) === Number(current))) return current;
+        if (current && nextData.contacts.some((contact) => Number(contact.id) === Number(current)))
+          return current;
         const recent = nextData.contacts.find((contact) => field(contact, "lastMessage"));
         return recent?.id || nextData.contacts[0]?.id || null;
       });
@@ -2606,13 +4419,22 @@ function MessagesPage({ user, setPage }) {
     setSelectedContactId(contact.id);
     setActiveView("chat");
     try {
-      await api("/messages/read", { method: "POST", body: JSON.stringify({ senderId: contact.id }) });
+      await api("/messages/read", {
+        method: "POST",
+        body: JSON.stringify({ senderId: contact.id })
+      });
       setData((current) => ({
         ...current,
         unreadCount: Math.max(0, current.unreadCount - Number(field(contact, "unreadCount") || 0)),
-        contacts: current.contacts.map((item) => Number(item.id) === Number(contact.id) ? { ...item, unreadCount: 0 } : item),
-        messages: current.messages.map((message) => Number(field(message, "senderId")) === Number(contact.id)
-          && Number(field(message, "recipientId")) === Number(user.id) ? { ...message, isRead: 1 } : message)
+        contacts: current.contacts.map((item) =>
+          Number(item.id) === Number(contact.id) ? { ...item, unreadCount: 0 } : item
+        ),
+        messages: current.messages.map((message) =>
+          Number(field(message, "senderId")) === Number(contact.id) &&
+          Number(field(message, "recipientId")) === Number(user.id)
+            ? { ...message, isRead: 1 }
+            : message
+        )
       }));
     } catch {
       // 即使已读状态更新失败，也允许继续查看当前对话。
@@ -2626,7 +4448,10 @@ function MessagesPage({ user, setPage }) {
     setSending(true);
     setError("");
     try {
-      await api("/messages", { method: "POST", body: JSON.stringify({ recipientId: selectedContactId, content }) });
+      await api("/messages", {
+        method: "POST",
+        body: JSON.stringify({ recipientId: selectedContactId, content })
+      });
       setDraft("");
       await loadCenter(true);
     } catch (sendError) {
@@ -2640,83 +4465,214 @@ function MessagesPage({ user, setPage }) {
     const text = searchText.trim().toLowerCase();
     return !text || `${contact.name || ""} ${contact.role || ""}`.toLowerCase().includes(text);
   });
-  const selectedContact = data.contacts.find((contact) => Number(contact.id) === Number(selectedContactId));
+  const selectedContact = data.contacts.find(
+    (contact) => Number(contact.id) === Number(selectedContactId)
+  );
   const currentMessages = data.messages.filter((message) => {
     const senderId = Number(field(message, "senderId"));
     const recipientId = Number(field(message, "recipientId"));
-    return (senderId === Number(user.id) && recipientId === Number(selectedContactId))
-      || (senderId === Number(selectedContactId) && recipientId === Number(user.id));
+    return (
+      (senderId === Number(user.id) && recipientId === Number(selectedContactId)) ||
+      (senderId === Number(selectedContactId) && recipientId === Number(user.id))
+    );
   });
-  const courseUpdates = [...data.courseReplies.map((item) => ({ ...item, updateKind: "reply" })),
-    ...data.teachingFeedback.map((item) => ({ ...item, updateKind: field(item, "itemType") || "feedback" }))]
-    .sort((left, right) => String(field(right, "createdAt") || "").localeCompare(String(field(left, "createdAt") || "")));
-  const roleName = (role) => role === "teacher" ? "教师" : role === "student" ? "学生" : "用户";
+  const courseUpdates = [
+    ...data.courseReplies.map((item) => ({ ...item, updateKind: "reply" })),
+    ...data.teachingFeedback.map((item) => ({
+      ...item,
+      updateKind: field(item, "itemType") || "feedback"
+    }))
+  ].sort((left, right) =>
+    String(field(right, "createdAt") || "").localeCompare(String(field(left, "createdAt") || ""))
+  );
+  const roleName = (role) => (role === "teacher" ? "教师" : role === "student" ? "学生" : "用户");
 
   return (
     <main className="content message-center-page">
       <section className="message-center-hero">
-        <div><span className="studio-kicker">MESSAGES & REPLIES</span><h1>消息中心</h1><p>集中查看课程回复、学生反馈，并与平台中的老师或同学直接交流。</p></div>
-        <div className="message-summary"><MessageCircle size={23} /><span>未读消息</span><strong>{data.unreadCount}</strong></div>
+        <div>
+          <span className="studio-kicker">MESSAGES & REPLIES</span>
+          <h1>消息中心</h1>
+          <p>集中查看课程回复、学生反馈，并与平台中的老师或同学直接交流。</p>
+        </div>
+        <div className="message-summary">
+          <MessageCircle size={23} />
+          <span>未读消息</span>
+          <strong>{data.unreadCount}</strong>
+        </div>
       </section>
 
       <div className="message-view-tabs">
-        <button className={activeView === "chat" ? "active" : ""} onClick={() => setActiveView("chat")}>对话消息</button>
-        <button className={activeView === "updates" ? "active" : ""} onClick={() => setActiveView("updates")}>课程回复与反馈 <span>{courseUpdates.length}</span></button>
+        <button
+          className={activeView === "chat" ? "active" : ""}
+          onClick={() => setActiveView("chat")}
+        >
+          对话消息
+        </button>
+        <button
+          className={activeView === "updates" ? "active" : ""}
+          onClick={() => setActiveView("updates")}
+        >
+          课程回复与反馈 <span>{courseUpdates.length}</span>
+        </button>
       </div>
-      {error && <div className="inline-error-state" role="alert"><span>{error}</span><button onClick={() => loadCenter()}>重新加载</button></div>}
+      {error && (
+        <div className="inline-error-state" role="alert">
+          <span>{error}</span>
+          <button onClick={() => loadCenter()}>重新加载</button>
+        </div>
+      )}
 
       {activeView === "chat" ? (
         <section className="message-workspace">
           <aside className="contact-panel">
-            <header><div><span className="eyebrow">联系人</span><h2>开始对话</h2></div><Users size={20} /></header>
-            <label className="contact-search"><Search size={16} /><input value={searchText} onChange={(event) => setSearchText(event.target.value)} placeholder="搜索老师或同学" /></label>
+            <header>
+              <div>
+                <span className="eyebrow">联系人</span>
+                <h2>开始对话</h2>
+              </div>
+              <Users size={20} />
+            </header>
+            <label className="contact-search">
+              <Search size={16} />
+              <input
+                value={searchText}
+                onChange={(event) => setSearchText(event.target.value)}
+                placeholder="搜索老师或同学"
+              />
+            </label>
             <div className="contact-list">
               {filteredContacts.map((contact) => (
-                <button className={Number(contact.id) === Number(selectedContactId) ? "active" : ""} key={contact.id} onClick={() => selectContact(contact)}>
+                <button
+                  className={Number(contact.id) === Number(selectedContactId) ? "active" : ""}
+                  key={contact.id}
+                  onClick={() => selectContact(contact)}
+                >
                   <span className="contact-avatar">{String(contact.name || "用").slice(0, 1)}</span>
-                  <span className="contact-copy"><strong>{contact.name}</strong><small>{field(contact, "lastMessage") || roleName(contact.role)}</small></span>
-                  {Number(field(contact, "unreadCount") || 0) > 0 && <b>{field(contact, "unreadCount")}</b>}
+                  <span className="contact-copy">
+                    <strong>{contact.name}</strong>
+                    <small>{field(contact, "lastMessage") || roleName(contact.role)}</small>
+                  </span>
+                  {Number(field(contact, "unreadCount") || 0) > 0 && (
+                    <b>{field(contact, "unreadCount")}</b>
+                  )}
                 </button>
               ))}
-              {!loading && !filteredContacts.length && <p className="message-empty-copy">暂无可用联系人。</p>}
+              {!loading && !filteredContacts.length && (
+                <p className="message-empty-copy">暂无可用联系人。</p>
+              )}
             </div>
           </aside>
 
           <section className="conversation-panel">
             {selectedContact ? (
               <>
-                <header><span className="contact-avatar large">{String(selectedContact.name || "用").slice(0, 1)}</span><div><h2>{selectedContact.name}</h2><p>{roleName(selectedContact.role)} · 可以发送课程问题和学习建议</p></div></header>
+                <header>
+                  <span className="contact-avatar large">
+                    {String(selectedContact.name || "用").slice(0, 1)}
+                  </span>
+                  <div>
+                    <h2>{selectedContact.name}</h2>
+                    <p>{roleName(selectedContact.role)} · 可以发送课程问题和学习建议</p>
+                  </div>
+                </header>
                 <div className="conversation-stream">
                   {currentMessages.map((message) => {
                     const mine = Number(field(message, "senderId")) === Number(user.id);
-                    return <article className={mine ? "mine" : "theirs"} key={message.id}><span>{message.content}</span><small>{formatLearningDate(field(message, "createdAt"))}</small></article>;
+                    return (
+                      <article className={mine ? "mine" : "theirs"} key={message.id}>
+                        <span>{message.content}</span>
+                        <small>{formatLearningDate(field(message, "createdAt"))}</small>
+                      </article>
+                    );
                   })}
-                  {!loading && !currentMessages.length && <div className="conversation-empty"><MessageCircle size={30} /><strong>还没有对话记录</strong><p>发送第一条消息，开始交流课程或学习问题。</p></div>}
+                  {!loading && !currentMessages.length && (
+                    <div className="conversation-empty">
+                      <MessageCircle size={30} />
+                      <strong>还没有对话记录</strong>
+                      <p>发送第一条消息，开始交流课程或学习问题。</p>
+                    </div>
+                  )}
                 </div>
                 <form className="message-composer" onSubmit={sendMessage}>
-                  <textarea maxLength={2000} value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={`给 ${selectedContact.name} 发送消息…`} />
-                  <div><small>{draft.length}/2000</small><button disabled={sending || !draft.trim()} type="submit">{sending ? "发送中…" : "发送消息"}<Send size={16} /></button></div>
+                  <textarea
+                    maxLength={2000}
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    placeholder={`给 ${selectedContact.name} 发送消息…`}
+                  />
+                  <div>
+                    <small>{draft.length}/2000</small>
+                    <button disabled={sending || !draft.trim()} type="submit">
+                      {sending ? "发送中…" : "发送消息"}
+                      <Send size={16} />
+                    </button>
+                  </div>
                 </form>
               </>
-            ) : <div className="conversation-empty centered"><Users size={34} /><strong>选择一个联系人</strong><p>从左侧选择老师或同学后即可开始对话。</p></div>}
+            ) : (
+              <div className="conversation-empty centered">
+                <Users size={34} />
+                <strong>选择一个联系人</strong>
+                <p>从左侧选择老师或同学后即可开始对话。</p>
+              </div>
+            )}
           </section>
         </section>
       ) : (
         <section className="course-update-panel">
-          <header><div><span className="eyebrow">COURSE ACTIVITY</span><h2>{user.role === "teacher" ? "学生反馈与收到的回复" : "老师给你的课程回复"}</h2></div><MessageCircle size={22} /></header>
+          <header>
+            <div>
+              <span className="eyebrow">COURSE ACTIVITY</span>
+              <h2>{user.role === "teacher" ? "学生反馈与收到的回复" : "老师给你的课程回复"}</h2>
+            </div>
+            <MessageCircle size={22} />
+          </header>
           <div className="course-update-list">
             {courseUpdates.map((item, index) => {
               const isReply = item.updateKind === "reply";
               const courseTitle = field(item, "courseTitle") || "相关课程";
               const actorName = field(item, "actorName") || (isReply ? "课程教师" : "课程学员");
-              const kindLabel = isReply ? (field(item, "targetType") === "review" ? "回复了你的评价" : "回复了你的问题") : item.updateKind === "review" ? "提交了课程评价" : "提出了课程问题";
-              return <article key={`${item.updateKind}-${item.id}-${index}`}>
-                <span className="contact-avatar">{String(actorName).slice(0, 1)}</span>
-                <div><header><strong>{actorName}</strong><span>{kindLabel}</span><small>{formatLearningDate(field(item, "createdAt"))}</small></header><h3>{courseTitle}</h3>{field(item, "sourceContent") && <blockquote>你原来的内容：{field(item, "sourceContent")}</blockquote>}<p>{item.content}</p></div>
-                {field(item, "courseId") && <button onClick={() => setPage("course", { courseId: field(item, "courseId") })}>查看课程<ArrowRight size={14} /></button>}
-              </article>;
+              const kindLabel = isReply
+                ? field(item, "targetType") === "review"
+                  ? "回复了你的评价"
+                  : "回复了你的问题"
+                : item.updateKind === "review"
+                  ? "提交了课程评价"
+                  : "提出了课程问题";
+              return (
+                <article key={`${item.updateKind}-${item.id}-${index}`}>
+                  <span className="contact-avatar">{String(actorName).slice(0, 1)}</span>
+                  <div>
+                    <header>
+                      <strong>{actorName}</strong>
+                      <span>{kindLabel}</span>
+                      <small>{formatLearningDate(field(item, "createdAt"))}</small>
+                    </header>
+                    <h3>{courseTitle}</h3>
+                    {field(item, "sourceContent") && (
+                      <blockquote>你原来的内容：{field(item, "sourceContent")}</blockquote>
+                    )}
+                    <p>{item.content}</p>
+                  </div>
+                  {field(item, "courseId") && (
+                    <button
+                      onClick={() => setPage("course", { courseId: field(item, "courseId") })}
+                    >
+                      查看课程
+                      <ArrowRight size={14} />
+                    </button>
+                  )}
+                </article>
+              );
             })}
-            {!loading && !courseUpdates.length && <div className="conversation-empty"><MessageCircle size={30} /><strong>暂时没有课程回复</strong><p>课程中的提问、评价和教师回复会集中显示在这里。</p></div>}
+            {!loading && !courseUpdates.length && (
+              <div className="conversation-empty">
+                <MessageCircle size={30} />
+                <strong>暂时没有课程回复</strong>
+                <p>课程中的提问、评价和教师回复会集中显示在这里。</p>
+              </div>
+            )}
           </div>
         </section>
       )}
@@ -2724,10 +4680,31 @@ function MessagesPage({ user, setPage }) {
   );
 }
 
-function TeacherDashboard({ resources, setResources, setResourceMeta }) {
+function TeacherDashboard({ resources, setResources, setResourceMeta, categoryTree = [] }) {
+  const [structureCourse, setStructureCourse] = useState(null);
   const editorRef = useRef(null);
   const titleInputRef = useRef(null);
-  const [form, setForm] = useState({ title: "", subject: "Java", type: "video", level: "入门", description: "", content: "" });
+  const [form, setForm] = useState({
+    title: "",
+    subject: "Java",
+    type: "video",
+    level: "入门",
+    learningStage: "foundation",
+    description: "",
+    content: ""
+  });
+  const courseSubjects = [
+    ...new Set(
+      [
+        ...subjects,
+        ...categoryTree.flatMap((category) =>
+          (category.children || []).map((direction) => direction.label)
+        ),
+        ...resources.map((item) => item.subject),
+        form.subject
+      ].filter(Boolean)
+    )
+  ];
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
@@ -2778,7 +4755,15 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
     setEditingId(null);
     setResourceNotice("");
     setResourceError("");
-    setForm({ title: "", subject: "Java", type: "video", level: "入门", description: "", content: "" });
+    setForm({
+      title: "",
+      subject: "Java",
+      type: "video",
+      level: "入门",
+      learningStage: "foundation",
+      description: "",
+      content: ""
+    });
     setFileInputKey((current) => current + 1);
   };
 
@@ -2807,15 +4792,20 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
         Object.entries(form).forEach(([key, value]) => {
           if (value !== undefined && value !== null) formData.append(key, value);
         });
-        await api("/teacher/resources", { method: "POST", body: formData });
+        const created = await api("/teacher/resources", { method: "POST", body: formData });
+        if (created.courseId) setStructureCourse({ id: created.courseId, title: form.title });
       }
-      const successMessage = editingId ? "修改已提交，等待管理员重新审核" : "课程作品已提交，管理员审核通过后将向学生发布";
+      const successMessage = editingId
+        ? "修改已提交，等待管理员重新审核"
+        : "课程作品已提交，管理员审核通过后将向学生发布";
       resetForm();
       setResourceNotice(successMessage);
       try {
         await refreshResources();
       } catch (refreshError) {
-        setResourceError(`${successMessage}，但课程列表刷新失败：${refreshError?.message || "请手动刷新"}`);
+        setResourceError(
+          `${successMessage}，但课程列表刷新失败：${refreshError?.message || "请手动刷新"}`
+        );
         handleActionError(refreshError, "课程列表刷新失败");
       }
       await loadAnalytics();
@@ -2837,6 +4827,7 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
       subject: item.subject || "Java",
       type: item.type || "material",
       level: item.level || "入门",
+      learningStage: item.learningStage || inferLearningStage(item.title, item.level),
       description: item.description || "",
       content: item.content || buildResourceTextContent(item)
     });
@@ -2858,7 +4849,9 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
       try {
         await refreshResources();
       } catch (refreshError) {
-        setResourceError(`资源已删除，但课程列表刷新失败：${refreshError?.message || "请手动刷新"}`);
+        setResourceError(
+          `资源已删除，但课程列表刷新失败：${refreshError?.message || "请手动刷新"}`
+        );
         handleActionError(refreshError, "课程列表刷新失败");
       }
       await loadAnalytics();
@@ -2895,8 +4888,10 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
     <main className="content teacher-dashboard">
       <div className="page-title compact">
         <span className="eyebrow">TEACHER STUDIO</span>
-        <h2>课程创作、审核反馈与学习洞察</h2>
-        <p>教师可上传视频和文字课程；所有新作品与修改都会进入管理员审核，审核通过后才向学生开放。</p>
+        <h1>课程创作、审核反馈与学习洞察</h1>
+        <p>
+          教师可上传视频和文字课程；所有新作品与修改都会进入管理员审核，审核通过后才向学生开放。
+        </p>
       </div>
 
       <section className="teacher-layout">
@@ -2905,20 +4900,87 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
             <span className="eyebrow">资源管理</span>
             <h2>{editingId ? "修改课程作品" : "提交视频或文字课程"}</h2>
           </div>
-          {resourceNotice && <p className="inline-success-state" role="status">{resourceNotice}</p>}
-          {resourceError && <p className="inline-error-state" role="alert">{resourceError}</p>}
+          {resourceNotice && (
+            <p className="inline-success-state" role="status">
+              {resourceNotice}
+            </p>
+          )}
+          {resourceError && (
+            <p className="inline-error-state" role="alert">
+              {resourceError}
+            </p>
+          )}
           <form className="teacher-form" onSubmit={submit} aria-busy={saving}>
-            <input ref={titleInputRef} placeholder="课程或资源标题" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required />
-            <select value={form.subject} onChange={(e) => setForm({ ...form, subject: e.target.value })}>{subjects.map((s) => <option key={s}>{s}</option>)}</select>
-            <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}><option value="video">视频</option><option value="material">学习资料</option></select>
-            <select value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })}><option>入门</option><option>进阶</option><option>项目实战</option></select>
-            <textarea placeholder="内容简介" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-            <textarea className="content-textarea" placeholder="文本学习内容，不填则系统自动生成不少于 500 字的学习正文" value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} />
-            {!editingId && <input key={fileInputKey} type="file" accept="video/*,.pdf,.doc,.docx,.ppt,.pptx,.txt" onChange={(e) => setForm({ ...form, file: e.target.files?.[0] })} />}
+            <input
+              ref={titleInputRef}
+              placeholder="课程或资源标题"
+              value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+              required
+            />
+            <select
+              aria-label="课程方向"
+              value={form.subject}
+              onChange={(e) => setForm({ ...form, subject: e.target.value })}
+            >
+              {courseSubjects.map((s) => (
+                <option key={s}>{s}</option>
+              ))}
+            </select>
+            <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+              <option value="video">视频</option>
+              <option value="material">学习资料</option>
+            </select>
+            <select
+              value={form.level}
+              onChange={(e) => setForm({ ...form, level: e.target.value })}
+            >
+              <option>入门</option>
+              <option>进阶</option>
+              <option>项目实战</option>
+            </select>
+            <label className="teacher-stage-select">
+              学习阶段
+              <select
+                aria-label="课程学习阶段"
+                value={form.learningStage}
+                onChange={(e) => setForm({ ...form, learningStage: e.target.value })}
+              >
+                {LEARNING_STAGES.map((stage) => (
+                  <option key={stage.code} value={stage.code}>
+                    {stage.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <textarea
+              placeholder="内容简介"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+            />
+            <textarea
+              className="content-textarea"
+              placeholder="文本学习内容，不填则系统自动生成不少于 500 字的学习正文"
+              value={form.content}
+              onChange={(e) => setForm({ ...form, content: e.target.value })}
+            />
+            {!editingId && (
+              <input
+                key={fileInputKey}
+                type="file"
+                accept="video/*,.pdf,.doc,.docx,.ppt,.pptx,.txt"
+                onChange={(e) => setForm({ ...form, file: e.target.files?.[0] })}
+              />
+            )}
             <button className="primary-btn" type="submit" disabled={saving || deletingId !== null}>
-              <Plus size={18} /> {saving ? "提交中..." : editingId ? "提交重新审核" : "提交管理员审核"}
+              <Plus size={18} />{" "}
+              {saving ? "提交中..." : editingId ? "提交重新审核" : "提交管理员审核"}
             </button>
-            {editingId && <button type="button" disabled={saving || deletingId !== null} onClick={resetForm}>取消编辑</button>}
+            {editingId && (
+              <button type="button" disabled={saving || deletingId !== null} onClick={resetForm}>
+                取消编辑
+              </button>
+            )}
           </form>
         </section>
 
@@ -2930,16 +4992,43 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
           {analyticsError && (
             <div className="inline-error-state" role="alert">
               <span>{analyticsError}</span>
-              <button type="button" onClick={loadAnalytics} disabled={analyticsLoading}>{analyticsLoading ? "重试中..." : "重新加载"}</button>
+              <button type="button" onClick={loadAnalytics} disabled={analyticsLoading}>
+                {analyticsLoading ? "重试中..." : "重新加载"}
+              </button>
             </div>
           )}
           <section className="teacher-overview">
             <div className="analytics-grid">
-              <AnalyticsCard icon={Users} label="学生总人数" value={analytics.summary.studentCount || 0} tone="blue" />
-              <AnalyticsCard icon={TrendingUp} label="近7天活跃" value={analytics.summary.activeStudents || 0} tone="green" />
-              <AnalyticsCard icon={CheckCircle2} label="课程完成率" value={`${analytics.summary.courseCompletionRate || 0}%`} tone="teal" />
-              <AnalyticsCard icon={BookOpen} label="资源总数" value={analytics.summary.resourceCount || resources.length} tone="orange" />
-              <AnalyticsCard icon={Clock3} label="待审核作品" value={analytics.summary.pendingCount || 0} tone="orange" />
+              <AnalyticsCard
+                icon={Users}
+                label="学生总人数"
+                value={analytics.summary.studentCount || 0}
+                tone="blue"
+              />
+              <AnalyticsCard
+                icon={TrendingUp}
+                label="近7天活跃"
+                value={analytics.summary.activeStudents || 0}
+                tone="green"
+              />
+              <AnalyticsCard
+                icon={CheckCircle2}
+                label="课程完成率"
+                value={`${analytics.summary.courseCompletionRate || 0}%`}
+                tone="teal"
+              />
+              <AnalyticsCard
+                icon={BookOpen}
+                label="资源总数"
+                value={analytics.summary.resourceCount || resources.length}
+                tone="orange"
+              />
+              <AnalyticsCard
+                icon={Clock3}
+                label="待审核作品"
+                value={analytics.summary.pendingCount || 0}
+                tone="orange"
+              />
             </div>
           </section>
 
@@ -2954,7 +5043,9 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
               </div>
               <div className="warning-list">
                 {analyticsLoading && <p className="muted">正在加载预警数据...</p>}
-                {!analyticsLoading && !analytics.warningStudents.length && <p className="muted">暂无需要预警的学生</p>}
+                {!analyticsLoading && !analytics.warningStudents.length && (
+                  <p className="muted">暂无需要预警的学生</p>
+                )}
                 {analytics.warningStudents.map((student) => (
                   <div className="warning-item" key={student.id}>
                     <div>
@@ -2964,7 +5055,9 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
                     <div className="warning-metrics">
                       <span>{student.avgProgress || 0}% 进度</span>
                       <span>{student.inactiveDays || 0} 天未活跃</span>
-                      <b className={student.riskLevel === "high" ? "risk-high" : "risk-medium"}>{student.riskLevel === "high" ? "高风险" : "中风险"}</b>
+                      <b className={student.riskLevel === "high" ? "risk-high" : "risk-medium"}>
+                        {student.riskLevel === "high" ? "高风险" : "中风险"}
+                      </b>
                     </div>
                   </div>
                 ))}
@@ -3006,6 +5099,18 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
         </section>
       </section>
 
+      {structureCourse && (
+        <TeacherCourseEditor
+          key={structureCourse.id}
+          course={structureCourse}
+          onClose={() => setStructureCourse(null)}
+          onChanged={() => {
+            refreshResources().catch((err) => setResourceError(err.message));
+            loadAnalytics();
+          }}
+        />
+      )}
+
       <section className="analytics-panel resource-analysis">
         <div className="panel-head">
           <div>
@@ -3025,37 +5130,111 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
         </div>
         <div className="teacher-feedback-grid">
           <section className="analytics-panel">
-            <div className="panel-head"><div><span className="eyebrow">课程评价</span><h3>最新学生评价</h3></div><Star size={21} /></div>
+            <div className="panel-head">
+              <div>
+                <span className="eyebrow">课程评价</span>
+                <h3>最新学生评价</h3>
+              </div>
+              <Star size={21} />
+            </div>
             <div className="teacher-feedback-list">
               {analytics.reviews.map((item) => {
                 const replyKey = `review-${item.id}`;
-                return <article key={item.id}>
-                  <header><strong>{item.resourceTitle}</strong><span>{Array.from({ length: 5 }, (_, index) => <Star key={index} size={12} className={index < item.rating ? "filled" : ""} />)}</span></header>
-                  <p>{item.content}</p>
-                  <small>{item.authorName} · {formatCommunityDate(item.updatedAt)} · 已回复 {item.replyCount || 0} 次</small>
-                  <div className="teacher-reply-form">
-                    <textarea maxLength={1000} value={replyDrafts[replyKey] || ""} onChange={(event) => setReplyDrafts((current) => ({ ...current, [replyKey]: event.target.value }))} placeholder="回复这条课程评价…" />
-                    <button type="button" disabled={!String(replyDrafts[replyKey] || "").trim() || Boolean(replyingKey)} onClick={() => submitTeacherReply("review", item)}>{replyingKey === replyKey ? "发送中…" : "回复"}<Send size={13} /></button>
-                  </div>
-                </article>;
+                return (
+                  <article key={item.id}>
+                    <header>
+                      <strong>{item.resourceTitle}</strong>
+                      <span>
+                        {Array.from({ length: 5 }, (_, index) => (
+                          <Star
+                            key={index}
+                            size={12}
+                            className={index < item.rating ? "filled" : ""}
+                          />
+                        ))}
+                      </span>
+                    </header>
+                    <p>{item.content}</p>
+                    <small>
+                      {item.authorName} · {formatCommunityDate(item.updatedAt)} · 已回复{" "}
+                      {item.replyCount || 0} 次
+                    </small>
+                    <div className="teacher-reply-form">
+                      <textarea
+                        maxLength={1000}
+                        value={replyDrafts[replyKey] || ""}
+                        onChange={(event) =>
+                          setReplyDrafts((current) => ({
+                            ...current,
+                            [replyKey]: event.target.value
+                          }))
+                        }
+                        placeholder="回复这条课程评价…"
+                      />
+                      <button
+                        type="button"
+                        disabled={
+                          !String(replyDrafts[replyKey] || "").trim() || Boolean(replyingKey)
+                        }
+                        onClick={() => submitTeacherReply("review", item)}
+                      >
+                        {replyingKey === replyKey ? "发送中…" : "回复"}
+                        <Send size={13} />
+                      </button>
+                    </div>
+                  </article>
+                );
               })}
               {!analytics.reviews.length && <p className="muted">暂时没有学生评价。</p>}
             </div>
           </section>
           <section className="analytics-panel">
-            <div className="panel-head"><div><span className="eyebrow">课程问答</span><h3>学生最近提出的问题</h3></div><MessageCircle size={21} /></div>
+            <div className="panel-head">
+              <div>
+                <span className="eyebrow">课程问答</span>
+                <h3>学生最近提出的问题</h3>
+              </div>
+              <MessageCircle size={21} />
+            </div>
             <div className="teacher-feedback-list">
               {analytics.questions.map((item) => {
                 const replyKey = `question-${item.id}`;
-                return <article key={item.id}>
-                  <header><strong>{item.resourceTitle}</strong><span>{item.answerCount || 0} 条讨论</span></header>
-                  <p>{item.content}</p>
-                  <small>{item.authorName} · {formatCommunityDate(item.createdAt)} · 教师回复 {item.replyCount || 0} 次</small>
-                  <div className="teacher-reply-form">
-                    <textarea maxLength={1000} value={replyDrafts[replyKey] || ""} onChange={(event) => setReplyDrafts((current) => ({ ...current, [replyKey]: event.target.value }))} placeholder="回复学生问题…" />
-                    <button type="button" disabled={!String(replyDrafts[replyKey] || "").trim() || Boolean(replyingKey)} onClick={() => submitTeacherReply("question", item)}>{replyingKey === replyKey ? "发送中…" : "回复"}<Send size={13} /></button>
-                  </div>
-                </article>;
+                return (
+                  <article key={item.id}>
+                    <header>
+                      <strong>{item.resourceTitle}</strong>
+                      <span>{item.answerCount || 0} 条讨论</span>
+                    </header>
+                    <p>{item.content}</p>
+                    <small>
+                      {item.authorName} · {formatCommunityDate(item.createdAt)} · 教师回复{" "}
+                      {item.replyCount || 0} 次
+                    </small>
+                    <div className="teacher-reply-form">
+                      <textarea
+                        maxLength={1000}
+                        value={replyDrafts[replyKey] || ""}
+                        onChange={(event) =>
+                          setReplyDrafts((current) => ({
+                            ...current,
+                            [replyKey]: event.target.value
+                          }))
+                        }
+                        placeholder="回复学生问题…"
+                      />
+                      <button
+                        type="button"
+                        disabled={
+                          !String(replyDrafts[replyKey] || "").trim() || Boolean(replyingKey)
+                        }
+                        onClick={() => submitTeacherReply("question", item)}
+                      >
+                        {replyingKey === replyKey ? "发送中…" : "回复"}
+                        <Send size={13} />
+                      </button>
+                    </div>
+                  </article>
+                );
               })}
               {!analytics.questions.length && <p className="muted">暂时没有课程问题。</p>}
             </div>
@@ -3070,15 +5249,54 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
         </div>
         <div className="teacher-course-list">
           {resources.map((item) => (
-            <div className={`teacher-resource-item${editingId === item.id ? " is-editing" : ""}`} key={item.id}>
+            <div
+              className={`teacher-resource-item${editingId === item.id ? " is-editing" : ""}`}
+              key={item.id}
+            >
               <div className={`review-status-chip ${item.reviewStatus || "pending"}`}>
-                {item.reviewStatus === "approved" ? "已通过" : item.reviewStatus === "rejected" ? "已驳回" : "审核中"}
+                {item.reviewStatus === "approved"
+                  ? "已通过"
+                  : item.reviewStatus === "rejected"
+                    ? "已驳回"
+                    : "审核中"}
               </div>
               <ResourceCard item={item} />
-              {item.reviewFeedback && <p className="teacher-review-feedback"><MessageCircle size={14} /><span><strong>管理员反馈</strong>{item.reviewFeedback}</span></p>}
+              {item.reviewFeedback && (
+                <p className="teacher-review-feedback">
+                  <MessageCircle size={14} />
+                  <span>
+                    <strong>管理员反馈</strong>
+                    {item.reviewFeedback}
+                  </span>
+                </p>
+              )}
               <div className="teacher-resource-actions">
-                <button type="button" aria-controls="teacher-course-editor" aria-pressed={editingId === item.id} disabled={saving || deletingId !== null} onClick={() => startEdit(item)}>编辑</button>
-                <button disabled={saving || deletingId !== null} onClick={() => deleteResource(item.id)}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStructureCourse({ id: item.id, title: item.title });
+                    window.requestAnimationFrame(() =>
+                      document
+                        .querySelector(".course-structure-editor")
+                        ?.scrollIntoView({ behavior: "smooth", block: "start" })
+                    );
+                  }}
+                >
+                  管理章节与资料
+                </button>
+                <button
+                  type="button"
+                  aria-controls="teacher-course-editor"
+                  aria-pressed={editingId === item.id}
+                  disabled={saving || deletingId !== null}
+                  onClick={() => startEdit(item)}
+                >
+                  编辑
+                </button>
+                <button
+                  disabled={saving || deletingId !== null}
+                  onClick={() => deleteResource(item.id)}
+                >
                   {deletingId === item.id ? "删除中..." : "删除"}
                 </button>
               </div>
@@ -3091,10 +5309,20 @@ function TeacherDashboard({ resources, setResources, setResourceMeta }) {
 }
 
 function AdminDashboard({ setPage }) {
-  const [data, setData] = useState({ summary: {}, pendingResources: [], resources: [], reviews: [], questions: [], health: {}, auditLogs: [] });
+  const [data, setData] = useState({
+    summary: {},
+    pendingResources: [],
+    resources: [],
+    reviews: [],
+    questions: [],
+    health: {},
+    auditLogs: []
+  });
   const [activeTab, setActiveTab] = useState(() => {
     const storedTab = sessionStorage.getItem("learning_admin_active_tab");
-    return ["review", "content", "community", "maintenance"].includes(storedTab) ? storedTab : "review";
+    return ["review", "content", "community", "maintenance"].includes(storedTab)
+      ? storedTab
+      : "review";
   });
   const [feedbacks, setFeedbacks] = useState({});
   const [loading, setLoading] = useState(true);
@@ -3153,10 +5381,15 @@ function AdminDashboard({ setPage }) {
       setError("驳回课程时需要填写明确的修改意见。");
       return;
     }
-    runAction(`review-${resource.id}`, () => api(`/admin/resources/${resource.id}/review`, {
-      method: "POST",
-      body: JSON.stringify({ action, feedback })
-    }), action === "approve" ? "课程已审核通过并发布" : "课程已驳回并反馈给教师");
+    runAction(
+      `review-${resource.id}`,
+      () =>
+        api(`/admin/resources/${resource.id}/review`, {
+          method: "POST",
+          body: JSON.stringify({ action, feedback })
+        }),
+      action === "approve" ? "课程已审核通过并发布" : "课程已驳回并反馈给教师"
+    );
   };
 
   const tabs = [
@@ -3169,88 +5402,429 @@ function AdminDashboard({ setPage }) {
   return (
     <main className="content admin-dashboard">
       <section className="admin-hero">
-        <div><span className="studio-kicker">ADMIN OPERATIONS</span><h1>内容治理与站点运行中心</h1><p>审核教师作品、管理课程与社区内容，并通过安全检查快速发现和修复常见数据问题。</p></div>
-        <div className="admin-live-status"><span><i />系统运行中</span><strong>{data.summary.pendingCount || 0}</strong><small>项内容等待处理</small></div>
+        <div>
+          <span className="studio-kicker">ADMIN OPERATIONS</span>
+          <h1>内容治理与站点运行中心</h1>
+          <p>审核教师作品、管理课程与社区内容，并通过安全检查快速发现和修复常见数据问题。</p>
+        </div>
+        <div className="admin-live-status">
+          <span>
+            <i />
+            系统运行中
+          </span>
+          <strong>{data.summary.pendingCount || 0}</strong>
+          <small>项内容等待处理</small>
+        </div>
       </section>
 
-      {notice && <p className="inline-success-state" role="status">{notice}</p>}
-      {error && <div className="inline-error-state" role="alert"><span>{error}</span><button onClick={loadDashboard}>重新加载</button></div>}
+      {notice && (
+        <p className="inline-success-state" role="status">
+          {notice}
+        </p>
+      )}
+      {error && (
+        <div className="inline-error-state" role="alert">
+          <span>{error}</span>
+          <button onClick={loadDashboard}>重新加载</button>
+        </div>
+      )}
 
       <section className="admin-summary-grid">
-        <article><Users size={20} /><span>学生账户</span><strong>{data.summary.studentCount || 0}</strong></article>
-        <article><GraduationCap size={20} /><span>教师账户</span><strong>{data.summary.teacherCount || 0}</strong></article>
-        <article><Clock3 size={20} /><span>待审核作品</span><strong>{data.summary.pendingCount || 0}</strong></article>
-        <article><Video size={20} /><span>已发布课程</span><strong>{data.summary.publishedCount || 0}</strong></article>
-        <article><MessageCircle size={20} /><span>社区内容</span><strong>{Number(data.summary.reviewCount || 0) + Number(data.summary.questionCount || 0)}</strong></article>
+        <article>
+          <Users size={20} />
+          <span>学生账户</span>
+          <strong>{data.summary.studentCount || 0}</strong>
+        </article>
+        <article>
+          <GraduationCap size={20} />
+          <span>教师账户</span>
+          <strong>{data.summary.teacherCount || 0}</strong>
+        </article>
+        <article>
+          <Clock3 size={20} />
+          <span>待审核作品</span>
+          <strong>{data.summary.pendingCount || 0}</strong>
+        </article>
+        <article>
+          <Video size={20} />
+          <span>已发布课程</span>
+          <strong>{data.summary.publishedCount || 0}</strong>
+        </article>
+        <article>
+          <MessageCircle size={20} />
+          <span>社区内容</span>
+          <strong>
+            {Number(data.summary.reviewCount || 0) + Number(data.summary.questionCount || 0)}
+          </strong>
+        </article>
       </section>
 
       <nav className="admin-tabs">
-        {tabs.map((tab) => <button className={activeTab === tab.id ? "active" : ""} key={tab.id} onClick={() => setActiveTab(tab.id)}>{tab.label}<span>{tab.count}</span></button>)}
+        {tabs.map((tab) => (
+          <button
+            className={activeTab === tab.id ? "active" : ""}
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+            <span>{tab.count}</span>
+          </button>
+        ))}
       </nav>
 
-      {loading ? <div className="admin-loading">正在同步管理数据...</div> : (
+      {loading ? (
+        <div className="admin-loading">正在同步管理数据...</div>
+      ) : (
         <section className="admin-workspace">
           {activeTab === "review" && (
             <div>
-              <div className="admin-section-head"><div><span className="studio-kicker">REVIEW QUEUE</span><h2>教师课程投稿审核</h2></div><p>只有审核通过的课程才会进入学生端。</p></div>
+              <div className="admin-section-head">
+                <div>
+                  <span className="studio-kicker">REVIEW QUEUE</span>
+                  <h2>教师课程投稿审核</h2>
+                </div>
+                <p>只有审核通过的课程才会进入学生端。</p>
+              </div>
               <div className="admin-review-list">
                 {data.pendingResources.map((item) => (
                   <article key={item.id}>
-                    <div className="admin-resource-icon">{item.type === "video" ? <Video size={23} /> : <FileText size={23} />}</div>
-                    <div className="admin-resource-copy"><span>{item.subject} · {item.type === "video" ? "视频课程" : "文字资料"}</span><h3>{item.title}</h3><p>提交教师：{item.teacher} · {item.chapterCount || 0} 章 · {item.publishedLessonCount || 0}/{item.totalLessonCount || 0} 节 · {item.playableVideoCount || 0} 个视频</p>{!item.contentComplete && <small className="admin-content-warning">{(item.reasons || []).join("；")}</small>}</div>
-                    <textarea value={feedbacks[item.id] || ""} onChange={(event) => setFeedbacks((current) => ({ ...current, [item.id]: event.target.value }))} maxLength={500} placeholder="填写审核意见；驳回时必填" />
-                    <div className="admin-review-actions"><button type="button" disabled={!!busyAction} onClick={() => setPage("course", { courseId: item.id })}><Eye size={15} />预览</button><button className="approve" disabled={!!busyAction || !item.contentComplete || item.ownershipMissing} onClick={() => reviewResource(item, "approve")}><CheckCircle2 size={15} />通过并发布</button><button className="reject" disabled={!!busyAction} onClick={() => reviewResource(item, "reject")}><CircleX size={15} />驳回修改</button></div>
+                    <div className="admin-resource-icon">
+                      {item.type === "video" ? <Video size={23} /> : <FileText size={23} />}
+                    </div>
+                    <div className="admin-resource-copy">
+                      <span>
+                        {item.subject} · {item.type === "video" ? "视频课程" : "文字资料"}
+                      </span>
+                      <h3>{item.title}</h3>
+                      <p>
+                        提交教师：{item.teacher} · {item.chapterCount || 0} 章 ·{" "}
+                        {item.publishedLessonCount || 0}/{item.totalLessonCount || 0} 节 ·{" "}
+                        {item.playableVideoCount || 0} 个视频
+                      </p>
+                      {!item.contentComplete && (
+                        <small className="admin-content-warning">
+                          {(item.reasons || []).join("；")}
+                        </small>
+                      )}
+                    </div>
+                    <textarea
+                      value={feedbacks[item.id] || ""}
+                      onChange={(event) =>
+                        setFeedbacks((current) => ({ ...current, [item.id]: event.target.value }))
+                      }
+                      maxLength={500}
+                      placeholder="填写审核意见；驳回时必填"
+                    />
+                    <div className="admin-review-actions">
+                      <button
+                        type="button"
+                        disabled={!!busyAction}
+                        onClick={() => setPage("course", { courseId: item.id })}
+                      >
+                        <Eye size={15} />
+                        预览
+                      </button>
+                      <button
+                        className="approve"
+                        disabled={!!busyAction || !item.contentComplete || item.ownershipMissing}
+                        onClick={() => reviewResource(item, "approve")}
+                      >
+                        <CheckCircle2 size={15} />
+                        通过并发布
+                      </button>
+                      <button
+                        className="reject"
+                        disabled={!!busyAction}
+                        onClick={() => reviewResource(item, "reject")}
+                      >
+                        <CircleX size={15} />
+                        驳回修改
+                      </button>
+                    </div>
                   </article>
                 ))}
-                {!data.pendingResources.length && <div className="admin-empty"><CheckCircle2 size={30} /><strong>审核队列已清空</strong><p>当前没有等待管理员处理的课程作品。</p></div>}
+                {!data.pendingResources.length && (
+                  <div className="admin-empty">
+                    <CheckCircle2 size={30} />
+                    <strong>审核队列已清空</strong>
+                    <p>当前没有等待管理员处理的课程作品。</p>
+                  </div>
+                )}
               </div>
             </div>
           )}
 
           {activeTab === "content" && (
             <div>
-              <div className="admin-section-head"><div><span className="studio-kicker">CONTENT LIBRARY</span><h2>课程与视频管理</h2></div><p>控制已审核内容是否向学生开放。</p></div>
+              <div className="admin-section-head">
+                <div>
+                  <span className="studio-kicker">CONTENT LIBRARY</span>
+                  <h2>课程与视频管理</h2>
+                </div>
+                <p>控制已审核内容是否向学生开放。</p>
+              </div>
               <div className="admin-table-wrap">
-                <table className="admin-table"><thead><tr><th>课程资源</th><th>教师</th><th>结构</th><th>视频</th><th>完整性</th><th>可见性</th><th>操作</th></tr></thead><tbody>
-                  {data.resources.map((item) => {
-                    const archived = item.lifecycleStatus === "archived";
-                    return (
-                      <tr key={item.id}>
-                        <td><strong>{item.title}</strong><small>{item.subject} · {item.type === "video" ? "视频" : "文字"}</small></td>
-                        <td>{item.ownershipMissing ? "教师待补充" : item.teacher}</td>
-                        <td>{item.chapterCount || 0} 章<small>{item.publishedLessonCount || 0}/{item.totalLessonCount || 0} 节</small></td>
-                        <td>{item.playableVideoCount || 0} 个</td>
-                        <td><span className={`review-status-chip ${item.contentComplete ? "approved" : "rejected"}`}>{item.contentComplete ? "完整" : "不完整"}</span>{!item.contentComplete && <small title={(item.reasons || []).join("；")}>{(item.reasons || ["内容待补充"])[0]}</small>}</td>
-                        <td>{archived ? "已归档" : Number(item.status) === 1 ? "已上架" : "已下架"}{archived && <small title={item.archiveReason || "历史课程归档"}>保留数据</small>}</td>
-                        <td>
-                          <button type="button" disabled={!!busyAction} onClick={() => setPage("course", { courseId: item.id })}>预览</button>
-                          <button disabled={!!busyAction || archived || item.reviewStatus !== "approved" || (Number(item.status) !== 1 && (!item.contentComplete || item.ownershipMissing))} onClick={() => runAction(`visibility-${item.id}`, () => api(`/admin/resources/${item.id}/visibility`, { method: "POST", body: JSON.stringify({ visible: Number(item.status) !== 1 }) }), Number(item.status) === 1 ? "课程已下架" : "课程已恢复上架")}>{Number(item.status) === 1 ? "下架" : "恢复"}</button>
-                          <button disabled={!!busyAction || Number(item.status) === 1} onClick={() => runAction(`archive-${item.id}`, () => api(`/admin/resources/${item.id}/archive`, { method: "POST", body: JSON.stringify({ archived: !archived, reason: archived ? "" : "管理员在课程内容治理中归档" }) }), archived ? "课程已取消归档，保持下架状态" : "课程已归档并保留历史数据")}>{archived ? "取消归档" : "归档"}</button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody></table>
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>课程资源</th>
+                      <th>教师</th>
+                      <th>结构</th>
+                      <th>视频</th>
+                      <th>完整性</th>
+                      <th>可见性</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.resources.map((item) => {
+                      const archived = item.lifecycleStatus === "archived";
+                      return (
+                        <tr key={item.id}>
+                          <td>
+                            <strong>{item.title}</strong>
+                            <small>
+                              {item.subject} · {item.type === "video" ? "视频" : "文字"}
+                            </small>
+                          </td>
+                          <td>{item.ownershipMissing ? "教师待补充" : item.teacher}</td>
+                          <td>
+                            {item.chapterCount || 0} 章
+                            <small>
+                              {item.publishedLessonCount || 0}/{item.totalLessonCount || 0} 节
+                            </small>
+                          </td>
+                          <td>{item.playableVideoCount || 0} 个</td>
+                          <td>
+                            <span
+                              className={`review-status-chip ${item.contentComplete ? "approved" : "rejected"}`}
+                            >
+                              {item.contentComplete ? "完整" : "不完整"}
+                            </span>
+                            {!item.contentComplete && (
+                              <small title={(item.reasons || []).join("；")}>
+                                {(item.reasons || ["内容待补充"])[0]}
+                              </small>
+                            )}
+                          </td>
+                          <td>
+                            {archived ? "已归档" : Number(item.status) === 1 ? "已上架" : "已下架"}
+                            {archived && (
+                              <small title={item.archiveReason || "历史课程归档"}>保留数据</small>
+                            )}
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              disabled={!!busyAction}
+                              onClick={() => setPage("course", { courseId: item.id })}
+                            >
+                              预览
+                            </button>
+                            <button
+                              disabled={
+                                !!busyAction ||
+                                archived ||
+                                item.reviewStatus !== "approved" ||
+                                (Number(item.status) !== 1 &&
+                                  (!item.contentComplete || item.ownershipMissing))
+                              }
+                              onClick={() =>
+                                runAction(
+                                  `visibility-${item.id}`,
+                                  () =>
+                                    api(`/admin/resources/${item.id}/visibility`, {
+                                      method: "POST",
+                                      body: JSON.stringify({ visible: Number(item.status) !== 1 })
+                                    }),
+                                  Number(item.status) === 1 ? "课程已下架" : "课程已恢复上架"
+                                )
+                              }
+                            >
+                              {Number(item.status) === 1 ? "下架" : "恢复"}
+                            </button>
+                            <button
+                              disabled={!!busyAction || Number(item.status) === 1}
+                              onClick={() =>
+                                runAction(
+                                  `archive-${item.id}`,
+                                  () =>
+                                    api(`/admin/resources/${item.id}/archive`, {
+                                      method: "POST",
+                                      body: JSON.stringify({
+                                        archived: !archived,
+                                        reason: archived ? "" : "管理员在课程内容治理中归档"
+                                      })
+                                    }),
+                                  archived
+                                    ? "课程已取消归档，保持下架状态"
+                                    : "课程已归档并保留历史数据"
+                                )
+                              }
+                            >
+                              {archived ? "取消归档" : "归档"}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
 
           {activeTab === "community" && (
             <div>
-              <div className="admin-section-head"><div><span className="studio-kicker">COMMUNITY MODERATION</span><h2>评价、反馈与问答管理</h2></div><p>清理违规内容，同时保留正常学习反馈。</p></div>
+              <div className="admin-section-head">
+                <div>
+                  <span className="studio-kicker">COMMUNITY MODERATION</span>
+                  <h2>评价、反馈与问答管理</h2>
+                </div>
+                <p>清理违规内容，同时保留正常学习反馈。</p>
+              </div>
               <div className="admin-community-grid">
-                <section><header><Star size={18} /><strong>课程评价</strong><span>{data.reviews.length}</span></header>{data.reviews.map((item) => <article key={item.id}><div><strong>{item.resourceTitle}</strong><small>{item.authorName} · {item.rating} 星</small><p>{item.content}</p></div><button title="删除评价" disabled={!!busyAction} onClick={() => runAction(`review-delete-${item.id}`, () => api(`/admin/reviews/${item.id}`, { method: "DELETE" }), "评价已删除")}><Trash2 size={15} /></button></article>)}</section>
-                <section><header><MessageCircle size={18} /><strong>课程问答</strong><span>{data.questions.length}</span></header>{data.questions.map((item) => <article key={item.id}><div><strong>{item.resourceTitle}</strong><small>{item.authorName} · {formatCommunityDate(item.createdAt)}</small><p>{item.content}</p></div><button title="删除问题" disabled={!!busyAction} onClick={() => runAction(`question-delete-${item.id}`, () => api(`/admin/questions/${item.id}`, { method: "DELETE" }), "问题已删除")}><Trash2 size={15} /></button></article>)}</section>
+                <section>
+                  <header>
+                    <Star size={18} />
+                    <strong>课程评价</strong>
+                    <span>{data.reviews.length}</span>
+                  </header>
+                  {data.reviews.map((item) => (
+                    <article key={item.id}>
+                      <div>
+                        <strong>{item.resourceTitle}</strong>
+                        <small>
+                          {item.authorName} · {item.rating} 星
+                        </small>
+                        <p>{item.content}</p>
+                      </div>
+                      <button
+                        title="删除评价"
+                        disabled={!!busyAction}
+                        onClick={() =>
+                          runAction(
+                            `review-delete-${item.id}`,
+                            () => api(`/admin/reviews/${item.id}`, { method: "DELETE" }),
+                            "评价已删除"
+                          )
+                        }
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </article>
+                  ))}
+                </section>
+                <section>
+                  <header>
+                    <MessageCircle size={18} />
+                    <strong>课程问答</strong>
+                    <span>{data.questions.length}</span>
+                  </header>
+                  {data.questions.map((item) => (
+                    <article key={item.id}>
+                      <div>
+                        <strong>{item.resourceTitle}</strong>
+                        <small>
+                          {item.authorName} · {formatCommunityDate(item.createdAt)}
+                        </small>
+                        <p>{item.content}</p>
+                      </div>
+                      <button
+                        title="删除问题"
+                        disabled={!!busyAction}
+                        onClick={() =>
+                          runAction(
+                            `question-delete-${item.id}`,
+                            () => api(`/admin/questions/${item.id}`, { method: "DELETE" }),
+                            "问题已删除"
+                          )
+                        }
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </article>
+                  ))}
+                </section>
               </div>
             </div>
           )}
 
           {activeTab === "maintenance" && (
             <div>
-              <div className="admin-section-head"><div><span className="studio-kicker">SITE HEALTH</span><h2>站点检查与快速修复</h2></div><button className="admin-repair-button" disabled={!!busyAction} onClick={() => runAction("repair", () => api("/admin/repair", { method: "POST" }), "站点数据检查与修复已完成")}><Wrench size={16} />{busyAction === "repair" ? "修复中..." : "运行安全修复"}</button></div>
-              <div className="admin-health-grid"><article><ShieldCheck size={22} /><span>数据库连接</span><strong>{data.health.database ? "正常" : "异常"}</strong></article><article><AlertTriangle size={22} /><span>公开课程问题</span><strong>{data.health.publicCourseIssueCount || 0}</strong></article><article><Wrench size={22} /><span>待治理课程</span><strong>{data.health.incompleteCourseCount || 0}</strong></article><article><Clock3 size={22} /><span>待审核内容</span><strong>{data.health.pendingReview || 0}</strong></article><article><Eye size={22} /><span>归档课程</span><strong>{data.health.archivedResources || 0}</strong></article></div>
-              {!!data.health.incompleteCourses?.length && <div className="admin-audit"><h3>课程内容完整性问题</h3>{data.health.incompleteCourses.map((item) => <div key={`health-${item.courseId}`}><span>课程 #{item.courseId}</span><strong>{item.title}</strong><small>{(item.reasons || []).join("；")}</small></div>)}</div>}
-              <div className="admin-audit"><h3>最近管理操作</h3>{data.auditLogs.map((item) => <div key={item.id}><span>{item.actionType}</span><strong>{item.detail || `${item.targetType} #${item.targetId || "system"}`}</strong><small>{item.adminName} · {formatCommunityDate(item.createdAt)}</small></div>)}</div>
+              <div className="admin-section-head">
+                <div>
+                  <span className="studio-kicker">SITE HEALTH</span>
+                  <h2>站点检查与快速修复</h2>
+                </div>
+                <button
+                  className="admin-repair-button"
+                  disabled={!!busyAction}
+                  onClick={() =>
+                    runAction(
+                      "repair",
+                      () => api("/admin/repair", { method: "POST" }),
+                      "站点数据检查与修复已完成"
+                    )
+                  }
+                >
+                  <Wrench size={16} />
+                  {busyAction === "repair" ? "修复中..." : "运行安全修复"}
+                </button>
+              </div>
+              <div className="admin-health-grid">
+                <article>
+                  <ShieldCheck size={22} />
+                  <span>数据库连接</span>
+                  <strong>{data.health.database ? "正常" : "异常"}</strong>
+                </article>
+                <article>
+                  <AlertTriangle size={22} />
+                  <span>公开课程问题</span>
+                  <strong>{data.health.publicCourseIssueCount || 0}</strong>
+                </article>
+                <article>
+                  <Wrench size={22} />
+                  <span>待治理课程</span>
+                  <strong>{data.health.incompleteCourseCount || 0}</strong>
+                </article>
+                <article>
+                  <Clock3 size={22} />
+                  <span>待审核内容</span>
+                  <strong>{data.health.pendingReview || 0}</strong>
+                </article>
+                <article>
+                  <Eye size={22} />
+                  <span>归档课程</span>
+                  <strong>{data.health.archivedResources || 0}</strong>
+                </article>
+              </div>
+              {!!data.health.incompleteCourses?.length && (
+                <div className="admin-audit">
+                  <h3>课程内容完整性问题</h3>
+                  {data.health.incompleteCourses.map((item) => (
+                    <div key={`health-${item.courseId}`}>
+                      <span>课程 #{item.courseId}</span>
+                      <strong>{item.title}</strong>
+                      <small>{(item.reasons || []).join("；")}</small>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="admin-audit">
+                <h3>最近管理操作</h3>
+                {data.auditLogs.map((item) => (
+                  <div key={item.id}>
+                    <span>{item.actionType}</span>
+                    <strong>
+                      {item.detail || `${item.targetType} #${item.targetId || "system"}`}
+                    </strong>
+                    <small>
+                      {item.adminName} · {formatCommunityDate(item.createdAt)}
+                    </small>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </section>
@@ -3294,9 +5868,15 @@ function ResourceStatsTable({ rows, loading }) {
           <tr>
             <th>资源名称</th>
             <th>方向</th>
-            <th><Eye size={15} /> 播放次数</th>
-            <th><CheckCircle2 size={15} /> 完成率</th>
-            <th><Star size={15} /> 收藏数</th>
+            <th>
+              <Eye size={15} /> 播放次数
+            </th>
+            <th>
+              <CheckCircle2 size={15} /> 完成率
+            </th>
+            <th>
+              <Star size={15} /> 收藏数
+            </th>
             <th>平均进度</th>
           </tr>
         </thead>
@@ -3326,4 +5906,3 @@ const rootElement = document.getElementById("root");
 const appRoot = window.__zhiduLearningRoot || createRoot(rootElement);
 window.__zhiduLearningRoot = appRoot;
 appRoot.render(<App />);
-

@@ -1,0 +1,46 @@
+.courseware-asset-panel { margin-top: 14px; border: 1px solid var(--paper-border); border-radius: 10px; background: var(--paper-section); }
+.courseware-asset-panel > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 10px 14px; color: var(--paper-ink); font-size: 14px; cursor: pointer; }
+.courseware-asset-panel > summary > svg { color: var(--color-accent); flex-shrink: 0; }
+.courseware-asset-panel > summary > small { margin-left: auto; color: var(--paper-muted); font-size: 12px; }
+.courseware-asset-body { padding: 0 14px 14px; }
+.courseware-asset-body > p { margin: 6px 0 14px; color: var(--paper-muted); font-size: 13px; line-height: 1.75; }
+.courseware-asset-body .courseware-hint { padding: 10px 12px; border-radius: 8px; color: var(--color-warning); background: var(--color-warning-soft); }
+.courseware-asset-body .courseware-task-status, .courseware-asset-body .courseware-confirmed { display: flex; align-items: flex-start; gap: 8px; color: var(--color-accent-hover); }
+.courseware-task-status > svg, .courseware-confirmed > svg { flex-shrink: 0; margin-top: 3px; }
+.courseware-preview-heading { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; margin: 12px 0; color: var(--paper-ink); font-size: 13px; }
+.courseware-preview-heading strong { overflow-wrap: anywhere; }
+.courseware-preview-heading span { color: var(--paper-muted); }
+.courseware-segments { display: grid; gap: 10px; max-height: 340px; padding: 1px; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.courseware-segments > article { padding: 12px; border-radius: 7px; background: var(--paper-surface); }
+.courseware-segments > article > strong { color: var(--color-accent-hover); font-size: 12px; }
+.courseware-segments > article > p { margin: 6px 0 0; color: var(--paper-ink); font-size: 13px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.courseware-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.courseware-actions > button, .courseware-more { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 9px 13px; border: 1px solid var(--paper-border); border-radius: 7px; background: var(--paper-surface); color: var(--color-accent-hover); font-size: 13px; }
+.courseware-more { margin-top: 10px; }
+.courseware-actions > .courseware-confirm { color: var(--color-inverse); border-color: var(--color-accent); background: var(--color-accent); }
+.courseware-actions > button:disabled { cursor: default; opacity: .55; }
+.courseware-asset-body .courseware-error, .courseware-error { padding: 11px 13px; border: 1px solid var(--color-danger-border); border-radius: 8px; background: var(--color-danger-soft); color: var(--color-danger); font-size: 13px; line-height: 1.7; }
+.courseware-error button { margin-left: 10px; border: 0; background: transparent; color: inherit; text-decoration: underline; }
+.courseware-sources { margin-top: 14px; font-size: 13px; }
+.courseware-sources > p { margin: 0 0 8px; color: var(--paper-ink); font-weight: 600; }
+.courseware-sources > p > span { display: block; margin-top: 4px; color: var(--paper-muted); font-size: 12px; font-weight: 400; line-height: 1.6; }
+.courseware-sources > ul { display: grid; gap: 7px; padding: 0; margin: 0; list-style: none; }
+.courseware-sources li > details { border: 1px solid var(--paper-border); border-radius: 8px; background: var(--paper-surface); }
+.courseware-sources summary { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 10px 12px; color: var(--color-accent-hover); cursor: pointer; }
+.courseware-sources summary > svg { flex-shrink: 0; }
+.courseware-sources summary > span { overflow-wrap: anywhere; }
+.courseware-sources blockquote { padding: 0; margin: 0 12px 10px; color: var(--paper-muted); font-size: 13px; line-height: 1.75; white-space: pre-wrap; }
+.courseware-sources details > button { min-height: 40px; padding: 8px 12px; margin: 0 0 6px; border: 0; background: transparent; color: var(--color-accent-hover); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; }
+.courseware-context-source { color: var(--paper-muted); font-size: 12px; }
+.courseware-source-dialog { width: min(680px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 24px; border: 1px solid var(--paper-border); border-radius: 14px; background: var(--paper-surface); color: var(--paper-ink); box-shadow: var(--shadow-floating); }
+.courseware-source-dialog::backdrop { background: rgb(25 40 55 / 35%); }
+.courseware-source-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.courseware-source-dialog h2 { margin: 0; font-size: 22px; line-height: 1.4; }
+.courseware-source-dialog header p { margin: 6px 0 0; color: var(--paper-muted); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.courseware-source-dialog header button { display: grid; place-items: center; flex-shrink: 0; width: 40px; height: 40px; border: 0; border-radius: 7px; background: var(--paper-inset); color: var(--paper-ink); }
+.courseware-source-location { color: var(--paper-muted); font-size: 13px; }
+.courseware-source-text { max-height: 55dvh; overflow-y: auto; overscroll-behavior: contain; padding: 14px; border-radius: 8px; background: var(--paper-section); color: var(--paper-ink); font-size: 15px; line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 540px) {
+  .courseware-actions > button { width: 100%; min-height: 44px; }
+  .courseware-source-dialog { padding: 18px; }
+}

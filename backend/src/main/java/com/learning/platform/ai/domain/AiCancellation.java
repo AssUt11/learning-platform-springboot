@@ -6,6 +6,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class AiCancellation {
+
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
     private volatile Closeable resource;
 
@@ -19,7 +20,9 @@ public class AiCancellation {
         close(resource);
     }
 
-    public boolean isCancelled() { return cancelled.get(); }
+    public boolean isCancelled() {
+        return cancelled.get();
+    }
 
     public void throwIfCancelled() {
         if (cancelled.get() || Thread.currentThread().isInterrupted()) {

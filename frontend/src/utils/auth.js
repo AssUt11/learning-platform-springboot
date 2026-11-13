@@ -1,4 +1,7 @@
+import { clearAgentAnalysisSession } from "./agentAnalysisStore";
+
 export function clearAuthStorage() {
+  clearAgentAnalysisSession();
   localStorage.removeItem("learning_user");
   localStorage.removeItem("learning_token");
   localStorage.removeItem("learning_preferences");
@@ -7,20 +10,24 @@ export function clearAuthStorage() {
 
 export function isAuthExpiredError(error) {
   const message = String(error?.message || "");
-  return error?.status === 401
-    || message.includes("Please log in first")
-    || message.includes("sign in again");
+  return (
+    error?.status === 401 ||
+    message.includes("Please log in first") ||
+    message.includes("sign in again")
+  );
 }
 
 export function notifyUnauthorized(error) {
   if (typeof window === "undefined" || error?.unauthorizedNotified) return;
   if (error && typeof error === "object") error.unauthorizedNotified = true;
-  window.dispatchEvent(new CustomEvent("learning:unauthorized", {
-    detail: {
-      status: error?.status,
-      message: error?.message
-    }
-  }));
+  window.dispatchEvent(
+    new CustomEvent("learning:unauthorized", {
+      detail: {
+        status: error?.status,
+        message: error?.message
+      }
+    })
+  );
 }
 
 export function handleActionError(error, fallbackMessage) {

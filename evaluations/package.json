@@ -1,0 +1,13 @@
+{
+  "name": "zhidu-model-evaluations",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.22.0" },
+  "scripts": {
+    "test": "node --test contract.test.mjs provider.test.mjs",
+    "eval:offline": "node run.mjs --mode=offline",
+    "eval:live": "node run.mjs --mode=live",
+    "eval:smoke": "node run.mjs --mode=live --limit=3"
+  }
+}

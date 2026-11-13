@@ -1,0 +1,31 @@
+{
+  "printWidth": 100,
+  "tabWidth": 2,
+  "useTabs": false,
+  "singleQuote": false,
+  "quoteProps": "preserve",
+  "semi": true,
+  "trailingComma": "none",
+  "arrowParens": "always",
+  "bracketSameLine": false,
+  "singleAttributePerLine": false,
+  "htmlWhitespaceSensitivity": "css",
+  "vueIndentScriptAndStyle": false,
+  "embeddedLanguageFormatting": "off",
+  "endOfLine": "lf",
+  "overrides": [
+    {
+      "files": "*.java",
+      "options": {
+        "tabWidth": 4
+      }
+    },
+    {
+      "files": "*.vue",
+      "options": {
+        "htmlWhitespaceSensitivity": "strict",
+        "embeddedLanguageFormatting": "auto"
+      }
+    }
+  ]
+}

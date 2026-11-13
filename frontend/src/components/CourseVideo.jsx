@@ -5,18 +5,21 @@ function safeVideoUrl(src) {
   return src ? encodeURI(src) : "";
 }
 
-const CourseVideo = forwardRef(function CourseVideo({
-  src,
-  title,
-  autoPlay = false,
-  className = "",
-  onLoadedMetadata,
-  onTimeUpdate,
-  onPause,
-  onEnded,
-  onPlay,
-  onError
-}, ref) {
+const CourseVideo = forwardRef(function CourseVideo(
+  {
+    src,
+    title,
+    autoPlay = false,
+    className = "",
+    onLoadedMetadata,
+    onTimeUpdate,
+    onPause,
+    onEnded,
+    onPlay,
+    onError
+  },
+  ref
+) {
   const [failed, setFailed] = useState(false);
 
   useEffect(() => setFailed(false), [src]);
@@ -96,8 +99,16 @@ export function CourseVideoPreview({ src, title }) {
         />
       )}
       <span className="course-video-preview-shade" />
-      <span className="course-video-preview-play"><Play size={18} fill="currentColor" /></span>
-      <small>{failed ? "本地视频未找到" : ready ? "悬停预览 · 点击学习" : `正在加载 ${title || "课程视频"}`}</small>
+      <span className="course-video-preview-play">
+        <Play size={18} fill="currentColor" />
+      </span>
+      <small>
+        {failed
+          ? "本地视频未找到"
+          : ready
+            ? "悬停预览 · 点击学习"
+            : `正在加载 ${title || "课程视频"}`}
+      </small>
     </span>
   );
 }

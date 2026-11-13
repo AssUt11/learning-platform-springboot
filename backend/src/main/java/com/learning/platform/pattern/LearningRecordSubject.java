@@ -1,12 +1,12 @@
 package com.learning.platform.pattern;
 
-import org.springframework.stereotype.Service;
-
 import java.util.List;
 import java.util.Map;
+import org.springframework.stereotype.Service;
 
 @Service
 public class LearningRecordSubject {
+
     private final List<LearningRecordObserver> observers;
 
     public LearningRecordSubject(List<LearningRecordObserver> observers) {

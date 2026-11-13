@@ -1,11 +1,11 @@
 package com.learning.platform.pattern;
 
-import org.springframework.stereotype.Component;
-
 import java.util.Map;
+import org.springframework.stereotype.Component;
 
 @Component
 public class ResourceRecommendAgentStrategy implements AgentStrategy {
+
     @Override
     public String type() {
         return "recommend";
@@ -23,10 +23,16 @@ public class ResourceRecommendAgentStrategy implements AgentStrategy {
             }
         }
         if (builder.length() == 0) {
-            builder.append(context.getSubject()).append(" foundation video, exercise material, project case");
+            builder
+                .append(context.getSubject())
+                .append(" foundation video, exercise material, project case");
         }
-        return "Resource recommendation agent: " + builder
-                + ". Reason: matched with subject preference, favorite history, weak nodes, and average progress "
-                + context.getAverageProgress() + "%.";
+        return (
+            "Resource recommendation agent: " +
+            builder +
+            ". Reason: matched with subject preference, favorite history, weak nodes, and average progress " +
+            context.getAverageProgress() +
+            "%."
+        );
     }
 }

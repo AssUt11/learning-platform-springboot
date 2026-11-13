@@ -1,0 +1,95 @@
+.profile-trigger > .user-avatar,
+.profile-summary > .user-avatar,
+.avatar-preview-wrap > .user-avatar {
+  display: inline-grid;
+  place-items: center;
+  position: relative;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--paper-border);
+  border-radius: 50%;
+  background: var(--color-accent-soft);
+  color: var(--color-accent-hover);
+  line-height: 1;
+  font-size: 16px;
+  font-weight: 700;
+  white-space: normal;
+  text-overflow: clip;
+}
+.profile-summary > .user-avatar.large { width: 48px; height: 48px; min-width: 48px; }
+.user-avatar > img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.user-avatar > .user-avatar-initial {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: none;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  text-align: center;
+  overflow: visible;
+}
+.profile-avatar-status {
+  padding: 8px 10px;
+  margin: 0;
+  color: var(--color-success);
+  font-size: 13px;
+}
+.avatar-dialog {
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100dvh - 40px);
+  padding: 28px;
+  overflow-y: auto;
+  border: 1px solid var(--paper-border);
+  border-radius: var(--radius-panel);
+  background: var(--paper-surface);
+  color: var(--paper-ink);
+  box-shadow: var(--shadow-floating);
+}
+.avatar-dialog::backdrop { background: rgb(25 40 55 / 35%); }
+.avatar-dialog form { display: block; margin: 0; }
+.avatar-dialog-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.avatar-dialog-heading h2 { padding: 0; margin: 0; font-size: 24px; line-height: 1.35; }
+.avatar-dialog-heading p { margin: 6px 0 0; color: var(--paper-muted); font-size: 14px; }
+.avatar-dialog-close {
+  display: grid; place-items: center; flex: 0 0 auto; width: 40px; height: 40px;
+  padding: 0; border: 0; border-radius: 10px; background: transparent; color: var(--paper-muted);
+}
+.avatar-dialog-close:hover { background: var(--paper-inset); color: var(--paper-ink); }
+.avatar-preview-wrap { display: grid; justify-items: center; gap: 14px; margin: 28px 0 22px; }
+.avatar-preview-wrap > .user-avatar.avatar-preview { width: 112px; height: 112px; min-width: 112px; font-size: 40px; }
+.avatar-preview-wrap > span:last-child { font-size: 13px; color: var(--paper-muted); }
+.avatar-file-input { display: none; }
+.avatar-choose-button {
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  width: 100%; min-height: 46px; padding: 10px 14px;
+  color: var(--color-accent-hover); background: var(--color-accent-soft);
+  border: 1px solid var(--paper-border); border-radius: 10px; font-size: 14px; font-weight: 600;
+}
+.avatar-dialog-help { margin: 12px 0 0; color: var(--paper-muted); font-size: 13px; line-height: 1.7; }
+.avatar-dialog-error {
+  margin: 14px 0 0; padding: 11px 13px;
+  border: 1px solid var(--color-danger-border); border-radius: 8px;
+  background: var(--color-danger-soft); color: var(--color-danger); font-size: 14px; line-height: 1.6;
+}
+.avatar-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 26px; }
+.avatar-cancel-button, .avatar-save-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 44px; padding: 10px 17px; border: 1px solid var(--paper-border); border-radius: 9px;
+  font-size: 14px; font-weight: 600;
+}
+.avatar-cancel-button { background: var(--paper-surface); color: var(--paper-ink); }
+.avatar-save-button { background: var(--color-accent); color: white; border-color: var(--color-accent); }
+.avatar-save-button:hover:not(:disabled) { background: var(--color-accent-hover); }
+.avatar-dialog button:disabled { opacity: .55; cursor: default; }
+.avatar-saving { animation: avatar-spin 1s linear infinite; }
+@keyframes avatar-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .avatar-saving { animation: none; } }
+@media (max-width: 480px) { .avatar-dialog { padding: 22px; } }

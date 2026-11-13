@@ -3,6 +3,7 @@ package com.learning.platform.common;
 import java.util.List;
 
 public class PageResult<T> {
+
     private final List<T> list;
     private final long total;
     private final int pageNum;
@@ -14,7 +15,7 @@ public class PageResult<T> {
         this.total = total;
         this.pageNum = pageNum;
         this.pageSize = pageSize;
-        this.totalPages = pageSize == 0 ? 0 : (int) Math.ceil(total * 1.0 / pageSize);
+        this.totalPages = pageSize == 0 ? 0 : (int) Math.ceil((total * 1.0) / pageSize);
     }
 
     public List<T> getList() {

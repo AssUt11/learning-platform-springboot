@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class ResourceRowAdapter {
+
     private final Map<String, Object> row;
 
     public ResourceRowAdapter(Map<String, Object> row) {

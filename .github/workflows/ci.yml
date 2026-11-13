@@ -1,0 +1,77 @@
+name: Verify learning platform
+
+on:
+  pull_request:
+  push:
+    branches: [main, 'codex/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Live integrations are intentionally excluded from pull request checks.
+      LLAMAFACTORY_SMOKE: 'false'
+      E2E_BROWSER_CHANNEL: chromium
+      E2E_FRONTEND_PORT: '5174'
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-java@v6.2.0
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked frontend dependencies
+        run: npm ci
+        working-directory: frontend
+      - name: Backend isolated unit tests
+        run: mvn --batch-mode --no-transfer-progress -f backend/pom.xml test
+      - name: Frontend production build
+        run: npm run build
+        working-directory: frontend
+      - name: Evaluation contract and local transport tests
+        run: node --test evaluations/contract.test.mjs evaluations/provider.test.mjs
+      - name: Offline evaluation contract
+        run: node evaluations/run.mjs --mode=offline
+      - name: Install browser used by mocked UI checks
+        run: npx --no-install playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Browser regressions with synthetic API fixtures
+        # Keep an explicit allowlist. roles/student-flow/*-live need disposable DBs.
+        run: >-
+          npx --no-install playwright test
+          e2e/avatar-upload.spec.js e2e/graph-course-target.spec.js
+          e2e/courseware.spec.js
+          e2e/course-assessment.spec.js e2e/smart-practice.spec.js
+          e2e/demo-login.spec.js
+          e2e/course-cover.spec.js e2e/course-discovery.spec.js
+          e2e/ui-polish.spec.js e2e/navigation.spec.js
+          e2e/agent-navigation.spec.js e2e/agent-chat.spec.js
+          e2e/ink-response.spec.js e2e/learning-planning.spec.js
+          e2e/knowledge-progress.spec.js e2e/learning-path.spec.js
+          e2e/adaptive-learning.spec.js e2e/teacher-edit.spec.js
+        working-directory: frontend
+      - name: Upload check evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: isolated-test-evidence
+          path: |
+            backend/target/surefire-reports/
+            frontend/playwright-report/
+            frontend/test-results/
+            evaluations/results/
+          if-no-files-found: ignore
+          retention-days: 7

@@ -1,12 +1,13 @@
 package com.learning.platform.ai.application;
 
-import com.learning.platform.ai.config.AiProperties;
-import org.junit.jupiter.api.Test;
-
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.learning.platform.ai.config.AiProperties;
+import org.junit.jupiter.api.Test;
+
 class AiUserRateLimiterTest {
+
     @Test
     void enforcesTheConfiguredLimitPerUser() {
         AiProperties properties = new AiProperties();

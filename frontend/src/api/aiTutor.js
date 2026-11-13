@@ -3,8 +3,13 @@ import request from "../utils/request";
 const apiBase = (import.meta.env.VITE_API_BASE || "/api").replace(/\/$/, "");
 
 export async function streamAiTutor(payload, { signal, onEvent } = {}) {
+  return streamAiResponse("/ai/tutor/chat/stream", payload, { signal, onEvent });
+}
+
+// Both course tutoring and standalone chat use the same SSE transport and event format.
+export async function streamAiResponse(path, payload, { signal, onEvent } = {}) {
   const token = localStorage.getItem("learning_token");
-  const response = await fetch(`${apiBase}/ai/tutor/chat/stream`, {
+  const response = await fetch(`${apiBase}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -16,7 +21,7 @@ export async function streamAiTutor(payload, { signal, onEvent } = {}) {
   });
   if (!response.ok) {
     const error = await response.json().catch(() => null);
-    const requestError = new Error(error?.message || error?.data?.message || "AI 伴学请求失败");
+    const requestError = new Error(error?.message || error?.data?.message || "AI 对话请求失败");
     requestError.status = response.status;
     throw requestError;
   }
@@ -54,11 +59,13 @@ function dispatchBlock(block, onEvent) {
   onEvent(event, payload);
 }
 
-export const cancelAiTutorRequest = (requestId) => request(`/ai/requests/${requestId}/cancel`, {
-  method: "POST"
-});
+export const cancelAiTutorRequest = (requestId) =>
+  request(`/ai/requests/${requestId}/cancel`, {
+    method: "POST"
+  });
 
-export const sendAiTutorFeedback = (messageId, rating, reason = "") => request(
-  `/ai/messages/${messageId}/feedback`,
-  { method: "POST", body: JSON.stringify({ rating, reason }) }
-);
+export const sendAiTutorFeedback = (messageId, rating, reason = "") =>
+  request(`/ai/messages/${messageId}/feedback`, {
+    method: "POST",
+    body: JSON.stringify({ rating, reason })
+  });

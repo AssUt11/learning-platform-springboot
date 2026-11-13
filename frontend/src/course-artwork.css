@@ -1,0 +1,108 @@
+/* Subject illustrations use local MIT-licensed Devicon assets. The drawing is
+   decorative; the wrapping course link always supplies the accessible title. */
+.course-artwork {
+  --art-ground: #e8eef4;
+  --art-panel: #f8fafc;
+  --art-ink: #30485f;
+  --art-accent: #4d718e;
+  --art-tint: #d5e1eb;
+  --art-soft: #abc1d2;
+  --art-rule: #b4c4d2;
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 400 / 236;
+  overflow: hidden;
+  background: var(--art-ground);
+  text-align: left;
+  isolation: isolate;
+}
+.course-artwork--teal {
+  --art-ground: #e8efee;
+  --art-ink: #314d4c;
+  --art-accent: #527a75;
+  --art-tint: #d6e4e1;
+  --art-soft: #adc8c2;
+  --art-rule: #b7cbc6;
+}
+.course-artwork--slate {
+  --art-ground: #eceef2;
+  --art-ink: #3b475b;
+  --art-accent: #5e6e85;
+  --art-tint: #dce1e9;
+  --art-soft: #bac5d4;
+  --art-rule: #bdc7d4;
+}
+.course-artwork .course-artwork-canvas,
+.course-cover.course-cover-artwork .course-artwork-canvas,
+.studio-course-grid .course-cover.course-cover-artwork .course-artwork-canvas {
+  position: static;
+  display: block;
+  width: 100%;
+  height: 100%;
+  color: var(--art-ink);
+  overflow: visible;
+  filter: none;
+}
+.course-artwork-photo { display: block; width: 100%; height: 100%; object-fit: cover; }
+.course-artwork .art-paper { fill: var(--art-panel); }
+.course-artwork .art-tint { fill: var(--art-tint); }
+.course-artwork .art-soft-fill { fill: var(--art-soft); }
+.course-artwork .art-accent-fill { fill: var(--art-accent); }
+.course-artwork .art-transparent { fill: none; }
+.course-artwork .art-stroke { stroke: var(--art-rule); stroke-width: 1.4; }
+.course-artwork .art-line { fill: none; stroke: var(--art-rule); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.course-artwork .art-strong-line { fill: none; stroke: var(--art-accent); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.course-artwork .art-grid { fill: none; stroke: var(--art-rule); stroke-width: 1; opacity: .55; }
+.course-artwork .art-divider { fill: none; stroke: var(--art-rule); stroke-width: 1; opacity: .4; }
+.course-artwork .art-topic-title { fill: var(--art-ink); font: 650 21px system-ui, "Microsoft YaHei", sans-serif; letter-spacing: -.4px; }
+.course-artwork .art-topic-subtitle { fill: var(--art-ink); font: 12px system-ui, "Microsoft YaHei", sans-serif; }
+.course-artwork .art-code { fill: var(--art-ink); font: 12px Consolas, monospace; }
+.course-artwork .art-math { fill: var(--art-ink); font: 15px system-ui, sans-serif; }
+.course-artwork .art-accent { fill: var(--art-accent); }
+.course-artwork-badge,
+.course-artwork-play {
+  position: absolute;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 25px;
+  padding: 3px 8px;
+  border: 1px solid rgba(118, 139, 156, .2);
+  border-radius: 5px;
+  color: var(--art-ink);
+  background: var(--art-panel);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.course-artwork-badge { top: 12px; left: 14px; }
+.course-artwork-play { right: 12px; bottom: 11px; }
+.course-artwork .course-artwork-play > svg,
+.studio-course-grid .course-cover.course-cover-artwork .course-artwork-play > svg {
+  position: static;
+  inset: auto;
+  color: currentColor;
+}
+.course-cover.course-cover-artwork,
+.studio-course-grid .course-cover.course-cover-artwork {
+  display: block;
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+}
+.course-cover.course-cover-artwork::before,
+.course-cover.course-cover-artwork::after { display: none; }
+.course-cover-artwork .course-video-preview { opacity: 0; transition: opacity 180ms ease-out; }
+.course-cover-artwork:hover .course-video-preview.is-ready,
+.course-cover-artwork:focus-visible .course-video-preview.is-ready { opacity: 1; }
+.course-cover-artwork .course-video-preview.is-error { display: none; }
+.course-artwork--detail { aspect-ratio: 400 / 236; }
+.course-artwork-credit { color: var(--color-muted, #5f6e83); font-size: 12px; line-height: 1.7; }
+.course-artwork-credit summary { width: fit-content; cursor: pointer; }
+.course-artwork-credit p { margin: 7px 0 0; font-size: inherit; line-height: inherit; }
+.course-artwork-credit a { color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  .course-cover-artwork .course-video-preview { transition: none; }
+}
