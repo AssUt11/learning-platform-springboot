@@ -5,7 +5,7 @@ const questions = [
   { stem: "索引用于改善哪项性能？", options: ["图片渲染", "数据查找", "语音播放", "文本排版"], answer: 1, explanation: "索引可以减少查找扫描。", reference: "索引用于改善数据查找。" }
 ];
 
-async function setup(page, { complete = false, pendingVideos = 0, failLoad = false, temporaryVideo = false } = {}) {
+async function setup(page, { complete = false, pendingVideos = 0, failLoad = false, temporaryVideo = false, generateDelay = 0 } = {}) {
   const state = { complete, pendingVideos, failLoad, quiz: null, best: {}, generated: [], submitted: [], videoSaves: [] };
   const stages = ["基础", "巩固", "进阶"];
   const publicQuiz = () => state.quiz && { ...state.quiz, questions: questions.map(q => state.quiz.submitted ? q : { stem: q.stem, options: q.options }) };
@@ -53,6 +53,7 @@ async function setup(page, { complete = false, pendingVideos = 0, failLoad = fal
       data = assessment();
     } else if (path === "/api/practice/courses/12/assessment/generate") {
       const { difficulty } = req.postDataJSON();
+      if (generateDelay) await new Promise(resolve => setTimeout(resolve, generateDelay));
       state.generated.push(difficulty);
       state.quiz = { available: true, quizId: `quiz-${state.generated.length}`, difficulty, submitted: false, scope: "course", answers: [] };
       data = publicQuiz();
@@ -90,7 +91,7 @@ test("视频图文全部完成后才开放整课测试，未交卷刷新可恢�
 });
 
 test("按基础、巩固、进阶逐级开放，低分需重练，成绩与解析保存", async ({ page }) => {
-  const state = await setup(page, { complete: true });
+  const state = await setup(page, { complete: true, generateDelay: 100 });
   const region = panel(page);
   await expect(region.getByRole("button", { name: /进阶.*上一阶段/ })).toBeDisabled();
   await region.getByRole("button", { name: "向 AI 索要基础题" }).click();
@@ -102,6 +103,9 @@ test("按基础、巩固、进阶逐级开放，低分需重练，成绩与解�
   await expect(region).toContainText("讲义依据：事务用于保证一致性。");
   for (const difficulty of ["基础", "巩固", "进阶"]) {
     await region.getByRole("button", { name: `向 AI 索要${difficulty}题` }).click();
+    // Wait for the fresh quiz: check() returns immediately for an old checked radio,
+    // even while the previous round is disabled during generation.
+    await expect(region.getByRole("radio").first()).not.toBeChecked();
     await region.getByRole("radio").nth(0).check();
     await region.getByRole("radio").nth(5).check();
     await region.getByRole("button", { name: "提交并查看解析" }).click();
